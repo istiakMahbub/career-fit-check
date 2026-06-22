@@ -1,0 +1,141 @@
+import json
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from db.database import get_db
+
+log = logging.getLogger(__name__)
+router = APIRouter()
+
+
+# ── GET /api/profile ─────────────────────────────────────────────────────────
+
+@router.get("/profile")
+def get_profile():
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM user_profile WHERE id = 1").fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
+        skills = _parse_skills(row["skills"])
+        return _profile_dict(row, skills)
+
+
+# ── PUT /api/profile ─────────────────────────────────────────────────────────
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    skills: Optional[list[dict]] = None
+
+
+@router.put("/profile")
+def update_profile(payload: UpdateProfileRequest):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM user_profile WHERE id = 1").fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
+        name = payload.name if payload.name is not None else row["name"]
+        role = payload.role if payload.role is not None else row["role"]
+
+        if payload.skills is not None:
+            # Validate each skill has name + level
+            validated = []
+            for s in payload.skills:
+                if not isinstance(s.get("name"), str) or not s["name"].strip():
+                    continue
+                level = max(0, min(100, int(s.get("level", 50))))
+                validated.append({"name": s["name"].strip(), "level": level})
+            skills_json = json.dumps(validated)
+        else:
+            skills_json = row["skills"]
+
+        conn.execute(
+            "UPDATE user_profile SET name = ?, role = ?, skills = ? WHERE id = 1",
+            (name, role, skills_json),
+        )
+        skills = _parse_skills(skills_json)
+        return _profile_dict({"name": name, "role": role, "id": 1}, skills)
+
+
+# ── POST /api/profile/skill ──────────────────────────────────────────────────
+
+class SkillAction(BaseModel):
+    name: str
+    level: Optional[int] = 50
+
+
+@router.post("/profile/skill", status_code=201)
+def add_skill(payload: SkillAction):
+    """Add or update a single skill."""
+    with get_db() as conn:
+        row = conn.execute("SELECT skills FROM user_profile WHERE id = 1").fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
+        skills = _parse_skills(row["skills"])
+        name = payload.name.strip()
+        level = max(0, min(100, payload.level or 50))
+
+        # Upsert
+        existing = next((i for i, s in enumerate(skills) if s["name"].lower() == name.lower()), None)
+        if existing is not None:
+            skills[existing]["level"] = level
+        else:
+            skills.append({"name": name, "level": level})
+
+        conn.execute(
+            "UPDATE user_profile SET skills = ? WHERE id = 1",
+            (json.dumps(skills),),
+        )
+        return {"name": name, "level": level}
+
+
+@router.delete("/profile/skill/{skill_name}", status_code=204)
+def remove_skill(skill_name: str):
+    """Remove a skill by name."""
+    with get_db() as conn:
+        row = conn.execute("SELECT skills FROM user_profile WHERE id = 1").fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Profile not found")
+
+        skills = _parse_skills(row["skills"])
+        skills = [s for s in skills if s["name"].lower() != skill_name.lower()]
+        conn.execute(
+            "UPDATE user_profile SET skills = ? WHERE id = 1",
+            (json.dumps(skills),),
+        )
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _parse_skills(raw) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        result = json.loads(raw)
+        return result if isinstance(result, list) else []
+    except Exception:
+        return []
+
+
+def _initials(name: str) -> str:
+    parts = [w for w in (name or "").split() if w]
+    if len(parts) >= 2:
+        return (parts[0][0] + parts[-1][0]).upper()
+    return (name or "U")[:2].upper()
+
+
+def _profile_dict(row, skills: list[dict]) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"] or "",
+        "role": row["role"] or "",
+        "skills": skills,
+        "skill_count": len(skills),
+        "initials": _initials(row["name"] or ""),
+    }
