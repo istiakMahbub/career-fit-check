@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,7 +11,12 @@ from fastapi.staticfiles import StaticFiles
 
 from db.database import get_db, init_db
 from ai.fit_calculator import calculate_company_fit
-from routers import companies, jobs, profile
+from ai.insights import generate_learn_headline
+from routers import companies, jobs, profile, github
+
+# 5-minute in-memory cache for the learn headline (avoids redundant Gemini calls)
+_learn_headline_cache: dict = {"text": "", "ts": 0.0, "key": ""}
+_LEARN_CACHE_TTL = 300
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +52,7 @@ app.add_middleware(
 app.include_router(companies.router, prefix="/api")
 app.include_router(profile.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(github.router, prefix="/api")
 
 
 # ── GET /api/stats ────────────────────────────────────────────────────────────
@@ -307,20 +314,25 @@ def learn():
         avg_fit = round(sum(fits) / len(fits)) if fits else 0
 
         top = candidates[0] if candidates else None
-        second = candidates[1] if len(candidates) > 1 else None
 
-        if top and second:
-            headline = (
-                f"Focus on {top['name']} and {second['name']} next — "
-                "they're the highest-leverage gaps across your watchlist."
-            )
-        elif top:
-            headline = (
-                f"Focus on {top['name']} next — "
-                "it's the highest-leverage gap across your watchlist."
-            )
+        top_gap_names = [c["name"] for c in candidates[:4]]
+        cache_key = f"{','.join(top_gap_names)}:{avg_fit}:{n_companies}"
+        now = time.time()
+        if (
+            _learn_headline_cache["key"] == cache_key
+            and now - _learn_headline_cache["ts"] < _LEARN_CACHE_TTL
+        ):
+            headline = _learn_headline_cache["text"]
         else:
-            headline = "You're well aligned across your watchlist — keep depth fresh on your core skills."
+            try:
+                headline = generate_learn_headline(top_gap_names, avg_fit, n_companies)
+            except Exception:
+                headline = (
+                    f"Focus on {top_gap_names[0]} next — highest-leverage gap in your watchlist."
+                    if top_gap_names
+                    else "Keep your core skills sharp across your watchlist."
+                )
+            _learn_headline_cache.update({"text": headline, "ts": now, "key": cache_key})
 
         gain_from_top = 0
         if top and all_per_job:

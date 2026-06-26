@@ -10,8 +10,10 @@ from pydantic import BaseModel
 
 from db.database import get_db
 from scrapers.adzuna import fetch_jobs
+from scrapers.career_page import scrape_company, ScrapedJob
 from ai.skill_extractor import extract_skills
 from ai.fit_calculator import calculate_fit, calculate_company_fit, skill_gap
+from ai.insights import generate_nudge, generate_summary
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -289,6 +291,8 @@ def sync_company(company_id: int):
 
         name = company["name"]
         location = company["hq"] or "Berlin"
+        career_url = company["career_url"] or ""
+        website = company["website"] or ""
 
         # Step 1: fetch jobs from Adzuna
         adzuna_jobs = []
@@ -299,8 +303,23 @@ def sync_company(company_id: int):
         except Exception as e:
             log.error("Adzuna error for %s: %s", name, e)
 
+        # Step 1b: career page scraper fallback when Adzuna yields nothing
+        raw_jobs = list(adzuna_jobs)
+        if not raw_jobs:
+            log.info("Adzuna returned 0 jobs for %s — trying career page scraper", name)
+            try:
+                scraped = scrape_company(
+                    company_name=name,
+                    career_url=career_url,
+                    website=website,
+                )
+                # Normalise to a common shape so insert loop below handles both
+                raw_jobs = scraped  # ScrapedJob and AdzunaJob share the same fields
+            except Exception as e:
+                log.error("Career page scraper error for %s: %s", name, e)
+
         new_count = 0
-        for aj in adzuna_jobs:
+        for aj in raw_jobs:
             url = aj.url or ""
             if url and conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone():
                 continue
@@ -358,11 +377,44 @@ def sync_company(company_id: int):
             (datetime.utcnow().isoformat(), company_id),
         )
 
+        # Step 4: generate and cache AI insights
+        try:
+            user_skills = _user_skills(conn)
+            demand = _skill_demand(company_id, conn, user_skills)
+            top_skills = [d["name"] for d in demand[:8]]
+
+            recent_titles = [
+                r["title"]
+                for r in conn.execute(
+                    "SELECT title FROM jobs WHERE company_id = ? ORDER BY scraped_date DESC LIMIT 15",
+                    (company_id,),
+                ).fetchall()
+            ]
+
+            all_job_skills = _job_skills_by_job(company_id, conn)
+            fit = calculate_company_fit(user_skills, all_job_skills)
+
+            nudge = generate_nudge(name, recent_titles, top_skills)
+            summary = generate_summary(name, recent_titles, top_skills, fit, total_jobs)
+
+            conn.execute(
+                "INSERT INTO company_insights (company_id, nudge, ai_summary, updated_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(company_id) DO UPDATE SET "
+                "nudge = excluded.nudge, ai_summary = excluded.ai_summary, "
+                "updated_at = excluded.updated_at",
+                (company_id, nudge, summary, datetime.utcnow().isoformat()),
+            )
+        except Exception as e:
+            log.warning("Insights generation skipped for %s: %s", name, e)
+
+        source = "adzuna" if adzuna_jobs else ("career_page" if raw_jobs else "none")
         return {
-            "jobs_fetched": len(adzuna_jobs),
+            "jobs_fetched": len(raw_jobs),
             "jobs_new": new_count,
             "jobs_extracted": extracted_count,
             "total_jobs": total_jobs,
+            "source": source,
         }
 
 
@@ -500,14 +552,18 @@ def get_company(company_id: int):
             if len(recs) == 3:
                 break
 
-        # AI nudge (cached or fallback)
-        nudge_row = conn.execute(
-            "SELECT nudge FROM company_insights WHERE company_id = ?", (cid,)
+        # AI nudge + summary (cached or fallback)
+        insight_row = conn.execute(
+            "SELECT nudge, ai_summary FROM company_insights WHERE company_id = ?", (cid,)
         ).fetchone()
-        nudge = (nudge_row["nudge"] if nudge_row and nudge_row["nudge"] else None) or (
-            f"{company['name']} is actively hiring — strong demand for "
-            + (demand[0]["name"] if demand else "technical skills")
-            + "."
+        skill_str = demand[0]["name"] if demand else "technical skills"
+        nudge = (
+            (insight_row["nudge"] if insight_row and insight_row["nudge"] else None)
+            or f"{company['name']} is actively hiring — strong demand for {skill_str}."
+        )
+        ai_summary = (
+            (insight_row["ai_summary"] if insight_row and insight_row["ai_summary"] else None)
+            or ""
         )
 
         fit_label = (
@@ -540,6 +596,7 @@ def get_company(company_id: int):
             "fit_label": fit_label,
             "fit_note": fit_note,
             "nudge": nudge,
+            "ai_summary": ai_summary,
             "vel_label": _vel_label(vel),
             "vel_color": _vel_color(vel),
             "spark": _spark_points(weekly),

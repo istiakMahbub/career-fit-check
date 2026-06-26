@@ -50,3 +50,12 @@ CREATE TABLE IF NOT EXISTS company_insights (
     ai_summary TEXT,
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS github_cache (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    username TEXT,
+    repos_json TEXT DEFAULT '[]',
+    skills_json TEXT DEFAULT '[]',
+    build_next_json TEXT DEFAULT '[]',
+    last_synced TEXT
+);

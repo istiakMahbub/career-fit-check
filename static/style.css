@@ -1,0 +1,225 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d9d3c7; border-radius: 8px; border: 2px solid #f6f4ef; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes vIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.anim-in { animation: vIn 0.18s ease forwards; }
+.spinner {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 3px solid #e7e3da; border-top-color: #15604a;
+  animation: spin 0.8s linear infinite;
+}
+
+/* nav items */
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 11px; border-radius: 9px; cursor: pointer;
+  font-size: 13.5px; font-weight: 500;
+  transition: background 0.1s;
+  user-select: none;
+}
+.nav-item:hover { background: #f1eee6 !important; }
+.nav-item.active { background: #eaf0eb; color: #15604a; }
+
+/* company cards */
+.company-card {
+  background: #fff; border: 1px solid #e7e3da; border-radius: 16px;
+  padding: 18px; cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.company-card:hover { border-color: #cfc8ba; transform: translateY(-2px); }
+
+/* switcher chips */
+.switcher-chip {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  padding: 7px 13px 7px 8px; border-radius: 22px; cursor: pointer;
+  border: 1px solid #e7e3da; background: #fff;
+  transition: border-color 0.12s;
+}
+.switcher-chip:hover { border-color: #cfc8ba; }
+.switcher-chip.active { background: #eaf0eb; border-color: #cfe2d6; }
+
+/* compare chips */
+.compare-chip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 13px 7px 8px; border-radius: 22px; cursor: pointer;
+  border: 1px solid #e7e3da; background: #fff;
+  user-select: none; transition: border-color 0.12s;
+}
+.compare-chip:hover { border-color: #cfc8ba; }
+.compare-chip.selected { background: #eaf0eb; border-color: #cfe2d6; }
+
+/* remove btn */
+.remove-btn {
+  width: 24px; height: 24px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px; color: #bcb6aa; flex: none;
+  transition: background 0.1s, color 0.1s;
+}
+.remove-btn:hover { background: #f5e5e1; color: #b1493a; }
+
+/* icon btn (small square button) */
+.icon-btn {
+  width: 24px; height: 24px; border-radius: 7px;
+  border: 1px solid #e0dad0; display: flex; align-items: center;
+  justify-content: center; cursor: pointer;
+  font-size: 15px; color: #7a756a; user-select: none;
+  transition: background 0.1s;
+}
+.icon-btn:hover { background: #f3efe7; }
+.icon-btn.danger { border-color: #f0d9d4; color: #b1493a; }
+.icon-btn.danger:hover { background: #f5e5e1; }
+
+/* primary button */
+.btn-primary {
+  background: #15604a; color: #fff;
+  font-size: 12.5px; font-weight: 600;
+  border-radius: 20px; padding: 8px 15px; cursor: pointer;
+  display: flex; align-items: center; gap: 7px;
+  transition: background 0.1s; white-space: nowrap; flex: none;
+  border: none; font-family: 'IBM Plex Sans', sans-serif;
+}
+.btn-primary:hover { background: #12503e; }
+
+/* suggestion chips */
+.suggest-chip {
+  font-size: 12px; font-weight: 500; color: #55504a;
+  background: #fff; border: 1px dashed #d6cfc2; border-radius: 20px;
+  padding: 5px 12px; cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+}
+.suggest-chip:hover { border-color: #15604a; color: #15604a; }
+
+/* tailor role btn */
+.tailor-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: #1b1a17; color: #f6f4ef;
+  font-size: 11.5px; font-weight: 600; border-radius: 8px;
+  padding: 7px 11px; cursor: pointer; white-space: nowrap;
+  transition: background 0.1s;
+}
+.tailor-btn:hover { background: #15604a; }
+
+/* learn plan link */
+.learn-link {
+  margin-top: 14px; text-align: center; font-size: 12px;
+  font-weight: 600; color: #e0b15f; cursor: pointer; padding: 9px;
+  border: 1px solid #34312b; border-radius: 9px;
+  transition: background 0.1s;
+}
+.learn-link:hover { background: #262420; }
+
+/* overlay backdrop */
+.overlay-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(27,26,23,0.42);
+  display: flex; align-items: center; justify-content: center; padding: 34px;
+}
+
+/* close btn in overlays */
+.close-btn {
+  width: 32px; height: 32px; border-radius: 9px; border: 1px solid #e7e3da;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 16px; color: #7a756a; flex: none;
+  transition: background 0.1s;
+}
+.close-btn:hover { background: #f3efe7; }
+
+/* input */
+.text-input {
+  border: 1px solid #e0dad0; border-radius: 10px; padding: 12px 14px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #1b1a17;
+  background: #fff; outline: none; width: 100%;
+  transition: border-color 0.12s;
+}
+.text-input:focus { border-color: #15604a; }
+
+/* "add" button in overlays */
+.btn-add {
+  background: #15604a; color: #fff; font-size: 13px; font-weight: 600;
+  border-radius: 10px; padding: 13px 22px; cursor: pointer; flex: none;
+  transition: background 0.1s; border: none; font-family: 'IBM Plex Sans', sans-serif;
+}
+.btn-add:hover { background: #12503e; }
+
+/* tab toggle (tone/length) */
+.tab-group { display: flex; background: #f3efe7; border-radius: 8px; padding: 2px; }
+.tab-opt {
+  font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 6px;
+  cursor: pointer; transition: background 0.1s, color 0.1s;
+  color: #7a756a; background: transparent;
+}
+.tab-opt.active { background: #fff; color: #1b1a17; }
+
+/* profile page add skill input */
+.skill-input {
+  border: 1px solid #e0dad0; border-radius: 9px; padding: 10px 13px;
+  font-family: 'IBM Plex Sans', sans-serif; font-size: 13px;
+  color: #1b1a17; background: #fff; outline: none; flex: 1;
+  transition: border-color 0.12s;
+}
+.skill-input:focus { border-color: #15604a; }
+
+.btn-add-skill {
+  background: #15604a; color: #fff; font-size: 12.5px; font-weight: 600;
+  border-radius: 9px; padding: 11px 18px; cursor: pointer; flex: none;
+  transition: background 0.1s; border: none; font-family: 'IBM Plex Sans', sans-serif;
+}
+.btn-add-skill:hover { background: #12503e; }
+
+/* resume upload */
+.resume-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  border: 1.5px dashed #d6cfc2; border-radius: 12px; padding: 20px;
+  cursor: pointer; text-align: center; transition: border-color 0.12s;
+}
+.resume-drop:hover { border-color: #15604a; }
+
+/* "back" button style */
+.btn-back {
+  text-align: center; background: #fff; border: 1px solid #e7e3da;
+  font-size: 12.5px; font-weight: 600; border-radius: 10px;
+  padding: 12px 18px; cursor: pointer; color: #33312c; flex: none;
+  transition: background 0.1s;
+}
+.btn-back:hover { background: #f3efe7; }
+
+.topbar-sync-badge {
+  display: flex; align-items: center; gap: 7px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #7a756a;
+  background: #fff; border: 1px solid #e7e3da; border-radius: 20px; padding: 6px 12px;
+}
+
+.profile-footer {
+  border-top: 1px solid #ece7dd; padding-top: 14px;
+  display: flex; align-items: center; gap: 11px; cursor: pointer;
+  transition: opacity 0.1s;
+}
+.profile-footer:hover { opacity: 0.8; }
+
+/* Re-sync / disconnect buttons */
+.btn-resync {
+  font-size: 12px; font-weight: 600; color: #15604a;
+  border: 1px solid #cfe2d6; background: #e7f0ea; border-radius: 8px;
+  padding: 7px 13px; cursor: pointer; transition: background 0.1s;
+}
+.btn-resync:hover { background: #d8e8de; }
+.btn-disconnect {
+  font-size: 12px; font-weight: 600; color: #7a756a;
+  border: 1px solid #e7e3da; border-radius: 8px; padding: 7px 13px;
+  cursor: pointer; transition: background 0.1s;
+}
+.btn-disconnect:hover { background: #f3efe7; }
+
+/* example pill */
+.example-pill {
+  font-size: 12px; font-weight: 500; color: #55504a;
+  background: #fff; border: 1px dashed #d6cfc2; border-radius: 20px;
+  padding: 5px 12px; cursor: pointer; transition: border-color 0.1s, color 0.1s;
+}
+.example-pill:hover { border-color: #15604a; color: #15604a; }

@@ -1,11 +1,13 @@
+import io
 import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from db.database import get_db
+from ai.skill_extractor import extract_skills
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -109,6 +111,91 @@ def remove_skill(skill_name: str):
             "UPDATE user_profile SET skills = ? WHERE id = 1",
             (json.dumps(skills),),
         )
+
+
+# ── POST /api/profile/resume ─────────────────────────────────────────────────
+
+@router.post("/profile/resume")
+async def upload_resume(file: UploadFile = File(...)):
+    """
+    Accept a PDF or DOCX resume, extract text, use Gemini to detect skills,
+    then merge them into user_profile.skills (upsert — never replaces existing).
+    """
+    filename = (file.filename or "").lower()
+    if not (filename.endswith(".pdf") or filename.endswith(".docx") or filename.endswith(".doc")):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are accepted")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:  # 10 MB cap
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+
+    text = _extract_text(contents, filename)
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="Could not extract text from the file")
+
+    new_skills = extract_skills(text[:8000])
+
+    if not new_skills:
+        return {"skills_added": 0, "message": "No new skills detected in the resume"}
+
+    with get_db() as conn:
+        row = conn.execute("SELECT skills FROM user_profile WHERE id = 1").fetchone()
+        existing = _parse_skills(row["skills"] if row else "[]")
+        existing_names = {s["name"].lower() for s in existing}
+
+        added = 0
+        for skill_name in new_skills:
+            if skill_name.lower() not in existing_names:
+                existing.append({"name": skill_name, "level": 60})
+                existing_names.add(skill_name.lower())
+                added += 1
+
+        conn.execute(
+            "UPDATE user_profile SET skills = ? WHERE id = 1",
+            (json.dumps(existing),),
+        )
+
+    return {
+        "skills_added": added,
+        "skills_detected": new_skills,
+        "message": f"Added {added} new skill{'s' if added != 1 else ''} from your resume",
+    }
+
+
+def _extract_text(contents: bytes, filename: str) -> str:
+    if filename.endswith(".pdf"):
+        return _extract_pdf(contents)
+    return _extract_docx(contents)
+
+
+def _extract_pdf(contents: bytes) -> str:
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(contents)) as pdf:
+            return "\n".join(
+                page.extract_text() or "" for page in pdf.pages
+            )
+    except ImportError:
+        pass
+    # Fallback: pypdf2 if available
+    try:
+        import PyPDF2
+        reader = PyPDF2.PdfReader(io.BytesIO(contents))
+        return "\n".join(
+            page.extract_text() or "" for page in reader.pages
+        )
+    except ImportError:
+        pass
+    return ""
+
+
+def _extract_docx(contents: bytes) -> str:
+    try:
+        from docx import Document
+        doc = Document(io.BytesIO(contents))
+        return "\n".join(para.text for para in doc.paragraphs)
+    except ImportError:
+        return ""
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
