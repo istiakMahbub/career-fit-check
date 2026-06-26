@@ -625,16 +625,13 @@ async function renderLearn() {
 // ── PROFILE ───────────────────────────────────────────────────────────────────
 async function renderProfile() {
   setTopbar('Profile', 'Manage your skills and preferences');
-  const p = await api('GET', '/profile');
+  const [p, suggestData] = await Promise.all([
+    api('GET', '/profile'),
+    api('GET', '/profile/suggestions').catch(() => ({ suggestions: [] })),
+  ]);
   S.profile = p;
 
-  // Compute suggested skills: skills appearing in watchlist jobs but not in profile
-  const userNames = new Set(p.skills.map(s => s.name.toLowerCase()));
-  const UNIVERSE = ['Python', 'SQL', 'dbt', 'Airflow', 'Spark', 'Kafka', 'MLOps',
-    'Docker', 'Kubernetes', 'PyTorch', 'scikit-learn', 'Tableau', 'Power BI',
-    'Snowflake', 'AWS', 'A/B Testing', 'Statistics', 'Looker', 'Pandas', 'R'];
-  const suggestions = UNIVERSE.filter(s => !userNames.has(s.toLowerCase())).slice(0, 8);
-
+  const suggestions = suggestData.suggestions || [];
   const avgFit = S.stats.avg_fit || 0;
 
   const suggestHtml = suggestions.map(s =>
@@ -703,9 +700,20 @@ async function renderProfile() {
         <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:22px;">
           <div style="display:flex;align-items:center;gap:13px;">
             <div style="width:48px;height:48px;border-radius:50%;background:#1b1a17;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:17px;">${esc(p.initials || initials(p.name))}</div>
-            <div>
-              <div style="font-size:15px;font-weight:600;">${esc(p.name)}</div>
-              <div style="font-size:12px;color:#7a756a;margin-top:2px;">${esc(p.role)}</div>
+            <div style="flex:1;min-width:0;">
+              <div id="profile-name-display" style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:15px;font-weight:600;">${esc(p.name)}</span>
+                <span class="icon-btn" title="Edit name & role" onclick="editProfileMeta()" style="font-size:11px;opacity:0.5;">✎</span>
+              </div>
+              <div id="profile-role-display" style="font-size:12px;color:#7a756a;margin-top:2px;">${esc(p.role)}</div>
+              <div id="profile-meta-edit" style="display:none;margin-top:8px;flex-direction:column;gap:7px;">
+                <input id="profile-name-input" class="text-input" value="${esc(p.name)}" placeholder="Your name" style="font-size:13px;padding:6px 10px;"/>
+                <input id="profile-role-input" class="text-input" value="${esc(p.role)}" placeholder="Your role" style="font-size:13px;padding:6px 10px;"/>
+                <div style="display:flex;gap:7px;">
+                  <button class="btn-add-skill" onclick="saveProfileMeta()" style="flex:1;">Save</button>
+                  <button class="btn-back" onclick="cancelProfileMeta()">Cancel</button>
+                </div>
+              </div>
             </div>
           </div>
           <div style="display:flex;gap:12px;margin-top:20px;">
@@ -733,6 +741,38 @@ async function renderProfile() {
       </div>
     </div>
   </div>`);
+}
+
+function editProfileMeta() {
+  const nameDisplay = document.getElementById('profile-name-display');
+  const roleDisplay = document.getElementById('profile-role-display');
+  const editPanel  = document.getElementById('profile-meta-edit');
+  if (!nameDisplay || !editPanel) return;
+  nameDisplay.style.display = 'none';
+  roleDisplay.style.display = 'none';
+  editPanel.style.display   = 'flex';
+  document.getElementById('profile-name-input')?.focus();
+}
+
+function cancelProfileMeta() {
+  const nameDisplay = document.getElementById('profile-name-display');
+  const roleDisplay = document.getElementById('profile-role-display');
+  const editPanel  = document.getElementById('profile-meta-edit');
+  if (!nameDisplay || !editPanel) return;
+  nameDisplay.style.display = '';
+  roleDisplay.style.display = '';
+  editPanel.style.display   = 'none';
+}
+
+async function saveProfileMeta() {
+  const name = (document.getElementById('profile-name-input')?.value || '').trim();
+  const role = (document.getElementById('profile-role-input')?.value || '').trim();
+  if (!name) return;
+  await api('PUT', '/profile', { name, role });
+  S.profile = await api('GET', '/profile');
+  S.stats   = await api('GET', '/stats');
+  renderProfileFooter();
+  await renderProfile();
 }
 
 async function addNewSkill() {

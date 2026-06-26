@@ -113,6 +113,44 @@ def remove_skill(skill_name: str):
         )
 
 
+# ── GET /api/profile/suggestions ─────────────────────────────────────────────
+
+@router.get("/profile/suggestions")
+def get_suggestions(limit: int = 10):
+    """
+    Return the top skills demanded by watchlist companies that the user doesn't have.
+    Ranked by frequency across jobs. Falls back to a curated data-science list
+    if no jobs have been synced yet.
+    """
+    _FALLBACK = [
+        "Python", "SQL", "dbt", "Airflow", "Spark", "Kafka", "MLOps",
+        "Docker", "Kubernetes", "PyTorch", "scikit-learn", "Tableau",
+        "Power BI", "Snowflake", "AWS", "A/B Testing", "Statistics",
+        "Looker", "Pandas", "R",
+    ]
+
+    with get_db() as conn:
+        profile_row = conn.execute("SELECT skills FROM user_profile WHERE id = 1").fetchone()
+        user_skills = _parse_skills(profile_row["skills"] if profile_row else "[]")
+        user_names = {s["name"].lower() for s in user_skills}
+
+        # Count skill frequency across all synced jobs
+        rows = conn.execute(
+            "SELECT skill, COUNT(*) as cnt FROM job_skills GROUP BY skill ORDER BY cnt DESC"
+        ).fetchall()
+
+        if rows:
+            suggestions = [
+                r["skill"] for r in rows
+                if r["skill"].lower() not in user_names
+            ][:limit]
+        else:
+            # No jobs synced yet — use the curated fallback list
+            suggestions = [s for s in _FALLBACK if s.lower() not in user_names][:limit]
+
+    return {"suggestions": suggestions}
+
+
 # ── POST /api/profile/resume ─────────────────────────────────────────────────
 
 @router.post("/profile/resume")
