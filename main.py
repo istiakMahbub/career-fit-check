@@ -9,9 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from fastapi import HTTPException
+from pydantic import BaseModel
+
 from db.database import get_db, init_db
-from ai.fit_calculator import calculate_company_fit
+from ai.fit_calculator import calculate_company_fit, calculate_fit, skill_gap
 from ai.insights import generate_learn_headline
+from ai.resume_tailor import tailor_resume, write_cover_letter
 from routers import companies, jobs, profile, github
 
 # 5-minute in-memory cache for the learn headline (avoids redundant Gemini calls)
@@ -399,6 +403,93 @@ def learn():
             ],
             "recs": recs,
         }
+
+
+# ── POST /api/tailor ──────────────────────────────────────────────────────────
+
+class TailorRequest(BaseModel):
+    job_id: int
+    tone: str = "Professional"
+    length: str = "Standard"
+    lead_with: list[str] = []
+
+
+@app.post("/api/tailor")
+def tailor(payload: TailorRequest):
+    with get_db() as conn:
+        job = conn.execute(
+            "SELECT j.*, c.name as company_name, c.color as company_color "
+            "FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.id = ?",
+            (payload.job_id,),
+        ).fetchone()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        profile_row = conn.execute(
+            "SELECT name, role, skills FROM user_profile WHERE id = 1"
+        ).fetchone()
+        user_skills = json.loads(profile_row["skills"] or "[]") if profile_row else []
+
+        required_skills = [
+            r["skill"]
+            for r in conn.execute(
+                "SELECT skill FROM job_skills WHERE job_id = ?", (payload.job_id,)
+            ).fetchall()
+        ]
+
+        fit = calculate_fit(user_skills, required_skills) if required_skills else 0
+
+        # Default lead_with: user skills that overlap with job requirements
+        if payload.lead_with:
+            lead_with = payload.lead_with
+        else:
+            user_names = {s["name"].lower() for s in user_skills}
+            lead_with = [s for s in required_skills if s.lower() in user_names][:6]
+            if not lead_with:
+                lead_with = [s["name"] for s in sorted(user_skills, key=lambda x: -x["level"])[:4]]
+
+    role_title = job["title"]
+    company_name = job["company_name"]
+    user_name = profile_row["name"] if profile_row else "Candidate"
+    user_role = profile_row["role"] if profile_row else "Professional"
+
+    tone = payload.tone if payload.tone in ("Professional", "Confident", "Concise") else "Professional"
+    length = payload.length if payload.length in ("Brief", "Standard", "Detailed") else "Standard"
+
+    resume_text = tailor_resume(
+        role_title=role_title,
+        company_name=company_name,
+        required_skills=required_skills,
+        user_name=user_name,
+        user_role=user_role,
+        user_skills=user_skills,
+        lead_with=lead_with,
+        tone=tone,
+        length=length,
+    )
+    cover_text = write_cover_letter(
+        role_title=role_title,
+        company_name=company_name,
+        required_skills=required_skills,
+        user_name=user_name,
+        user_role=user_role,
+        user_skills=user_skills,
+        fit=fit,
+        tone=tone,
+        length=length,
+    )
+
+    return {
+        "job_id": payload.job_id,
+        "job_title": role_title,
+        "company_name": company_name,
+        "company_color": job["company_color"],
+        "fit": fit,
+        "required_skills": required_skills,
+        "lead_with": lead_with,
+        "resume": resume_text,
+        "cover_letter": cover_text,
+    }
 
 
 # ── Static files & SPA fallback ───────────────────────────────────────────────

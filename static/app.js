@@ -934,10 +934,186 @@ async function confirmAdd() {
 }
 
 // ── TAILOR OVERLAY ────────────────────────────────────────────────────────────
+const T = {
+  jobId: null,
+  tone: 'Professional',
+  length: 'Standard',
+  leadWith: [],        // current chip selection
+  availableLeadWith: [], // chips offered from API
+  tab: 'resume',
+  data: null,          // last API response
+  loading: false,
+};
+
 function openTailor(jobId, title, company) {
+  T.jobId = jobId;
+  T.tone = 'Professional';
+  T.length = 'Standard';
+  T.leadWith = [];
+  T.tab = 'resume';
+  T.data = null;
+
   document.getElementById('tailor-title').textContent = title;
   document.getElementById('tailor-sub').textContent = company + ' · Resume & Cover Letter';
+  setHTML('tailor-avatar', '');
+  setHTML('tailor-fit', '');
   document.getElementById('tailor-overlay').style.display = 'flex';
+  _renderTailorBody();
+  _fetchTailor();
+}
+
+function _closeTailor() {
+  document.getElementById('tailor-overlay').style.display = 'none';
+}
+
+async function _fetchTailor() {
+  if (T.loading) return;
+  T.loading = true;
+  _renderTailorBody();
+  try {
+    const data = await api('POST', '/tailor', {
+      job_id: T.jobId,
+      tone: T.tone,
+      length: T.length,
+      lead_with: T.leadWith,
+    });
+    T.data = data;
+    T.availableLeadWith = data.lead_with || [];
+    if (!T.leadWith.length) T.leadWith = [...T.availableLeadWith];
+
+    // Update overlay header with company color + fit
+    const fitColor = data.fit >= 70 ? '#15604a' : data.fit >= 45 ? '#b9791f' : '#b1493a';
+    setHTML('tailor-avatar', colorAvatar(data.company_color || '#15604a', data.company_name.slice(0,2).toUpperCase(), 34, 9, 13));
+    setHTML('tailor-fit', `<span style="color:${fitColor};">${data.fit}%</span>`);
+  } catch (e) {
+    T.data = { error: e.message };
+  } finally {
+    T.loading = false;
+    _renderTailorBody();
+  }
+}
+
+function _renderTailorBody() {
+  if (T.loading) {
+    setHTML('tailor-body', `
+      <div style="padding:48px;text-align:center;">
+        <div class="spinner" style="margin:0 auto 16px;"></div>
+        <div style="font-size:13.5px;font-weight:600;">Generating with Gemini…</div>
+        <div style="font-size:12px;color:#7a756a;margin-top:6px;">Tailoring your resume and cover letter for this role.</div>
+      </div>`);
+    return;
+  }
+
+  if (!T.data) {
+    setHTML('tailor-body', `<div style="padding:48px;text-align:center;color:#9a9488;">Press Generate to start.</div>`);
+    return;
+  }
+
+  if (T.data.error) {
+    setHTML('tailor-body', `
+      <div style="padding:48px;text-align:center;color:#b1493a;">
+        <div style="font-size:18px;margin-bottom:10px;">⚠</div>
+        <div style="font-size:13px;">${esc(T.data.error)}</div>
+        <button class="btn-primary" style="margin-top:18px;" onclick="_fetchTailor()">Retry</button>
+      </div>`);
+    return;
+  }
+
+  const tones = ['Professional', 'Confident', 'Concise'];
+  const lengths = ['Brief', 'Standard', 'Detailed'];
+
+  const toneHtml = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;margin-right:2px;">TONE</span>
+    <div class="tab-group">${tones.map(t =>
+      `<div class="tab-opt${T.tone === t ? ' active' : ''}" onclick="_setTone('${t}')">${t}</div>`
+    ).join('')}</div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;margin-left:8px;margin-right:2px;">LENGTH</span>
+    <div class="tab-group">${lengths.map(l =>
+      `<div class="tab-opt${T.length === l ? ' active' : ''}" onclick="_setLength('${l}')">${l}</div>`
+    ).join('')}</div>
+  </div>`;
+
+  const leadChips = (T.data.required_skills || []).slice(0, 8).map(s => {
+    const on = T.leadWith.includes(s);
+    return `<div class="${on ? 'suggest-chip' : 'suggest-chip'}"
+      onclick="_toggleLead('${esc(s)}')"
+      style="border-color:${on ? '#15604a' : '#d6cfc2'};color:${on ? '#15604a' : '#55504a'};${on ? 'background:#e7f0ea;' : ''}">
+      ${on ? '✓ ' : '+ '}${esc(s)}
+    </div>`;
+  }).join('');
+
+  const content = T.tab === 'resume' ? T.data.resume : T.data.cover_letter;
+  const contentHtml = content
+    ? content.split('\n').map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '<div style="height:10px;"></div>';
+        if (trimmed.startsWith('•')) return `<div style="display:flex;gap:10px;margin-bottom:6px;"><span style="flex:none;color:#15604a;">•</span><span style="flex:1;">${esc(trimmed.slice(1).trim())}</span></div>`;
+        if (trimmed === trimmed.toUpperCase() && trimmed.length > 3) return `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.6px;color:#9a9488;margin:14px 0 8px;">${esc(trimmed)}</div>`;
+        return `<div style="margin-bottom:4px;line-height:1.6;">${esc(trimmed)}</div>`;
+      }).join('')
+    : '<div style="color:#9a9488;font-size:12px;">No content generated.</div>';
+
+  setHTML('tailor-body', `
+    <div style="padding:18px 20px;border-bottom:1px solid #e7e3da;background:#fff;">
+      ${toneHtml}
+      ${leadChips ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;align-items:center;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;margin-right:2px;">LEAD WITH</span>
+        ${leadChips}
+      </div>` : ''}
+    </div>
+
+    <div style="display:flex;gap:0;border-bottom:1px solid #e7e3da;background:#fff;">
+      ${['resume','cover_letter'].map(tab => {
+        const label = tab === 'resume' ? 'Resume' : 'Cover Letter';
+        const active = T.tab === tab;
+        return `<div onclick="_setTab('${tab}')"
+          style="padding:11px 18px;font-size:13px;font-weight:600;cursor:pointer;
+          border-bottom:2px solid ${active ? '#15604a' : 'transparent'};
+          color:${active ? '#15604a' : '#7a756a'};transition:color 0.1s;">
+          ${label}
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div style="padding:22px 24px;">
+      <div style="background:#fff;border:1px solid #e7e3da;border-radius:14px;padding:22px 26px;font-size:13px;line-height:1.65;color:#1b1a17;min-height:200px;">
+        ${contentHtml}
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+        <button class="btn-back" onclick="_fetchTailor()">↻ Regenerate</button>
+        <button class="btn-primary" onclick="_copyTailor()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy to clipboard
+        </button>
+      </div>
+    </div>`);
+}
+
+function _setTone(t) { T.tone = t; _fetchTailor(); }
+function _setLength(l) { T.length = l; _fetchTailor(); }
+
+function _setTab(tab) {
+  T.tab = tab;
+  _renderTailorBody();
+}
+
+function _toggleLead(skill) {
+  const idx = T.leadWith.indexOf(skill);
+  if (idx >= 0) T.leadWith.splice(idx, 1);
+  else T.leadWith.push(skill);
+  _fetchTailor();
+}
+
+async function _copyTailor() {
+  const content = T.tab === 'resume' ? T.data?.resume : T.data?.cover_letter;
+  if (!content) return;
+  try {
+    await navigator.clipboard.writeText(content);
+    const btn = document.querySelector('#tailor-body .btn-primary');
+    if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => btn.innerHTML = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy to clipboard', 2000); }
+  } catch {
+    alert('Copy failed — please select and copy the text manually.');
+  }
 }
 
 // ── SCREEN ROUTER ─────────────────────────────────────────────────────────────
@@ -1172,16 +1348,14 @@ async function init() {
   // Wire up static buttons
   document.getElementById('add-btn').onclick = openAddOverlay;
   document.getElementById('add-close').onclick = closeAddOverlay;
-  document.getElementById('tailor-close').onclick = () => {
-    document.getElementById('tailor-overlay').style.display = 'none';
-  };
+  document.getElementById('tailor-close').onclick = _closeTailor;
 
   // Close overlays on backdrop click
   document.getElementById('add-overlay').onclick = e => {
     if (e.target === e.currentTarget) closeAddOverlay();
   };
   document.getElementById('tailor-overlay').onclick = e => {
-    if (e.target === e.currentTarget) document.getElementById('tailor-overlay').style.display = 'none';
+    if (e.target === e.currentTarget) _closeTailor();
   };
 
   // Load initial profile for footer
