@@ -16,7 +16,7 @@ from db.database import get_db, init_db
 from ai.fit_calculator import calculate_company_fit, calculate_fit, skill_gap
 from ai.insights import generate_learn_headline
 from ai.resume_tailor import tailor_resume, write_cover_letter
-from routers import companies, jobs, profile, github
+from routers import companies, jobs, profile, github, applications
 
 # 5-minute in-memory cache for the learn headline (avoids redundant Gemini calls)
 _learn_headline_cache: dict = {"text": "", "ts": 0.0, "key": ""}
@@ -57,6 +57,7 @@ app.include_router(companies.router, prefix="/api")
 app.include_router(profile.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(github.router, prefix="/api")
+app.include_router(applications.router, prefix="/api")
 
 
 # ── GET /api/stats ────────────────────────────────────────────────────────────

@@ -60,12 +60,13 @@ function setSyncLabel(text) {
 
 // ── navigation ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'overview', label: 'Overview',  icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>' },
-  { id: 'deep',     label: 'Deep Dive', icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 17l4-8 4 4 4-6 4 3"/></svg>' },
-  { id: 'compare',  label: 'Compare',   icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="7" width="8" height="14" rx="1"/></svg>' },
-  { id: 'projects', label: 'Projects',  icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>' },
-  { id: 'learn',    label: 'Learn Next', icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
-  { id: 'profile',  label: 'Profile',   icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>' },
+  { id: 'overview',      label: 'Overview',     icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>' },
+  { id: 'deep',          label: 'Deep Dive',    icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M3 17l4-8 4 4 4-6 4 3"/></svg>' },
+  { id: 'compare',       label: 'Compare',      icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="7" width="8" height="14" rx="1"/></svg>' },
+  { id: 'projects',      label: 'Projects',     icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>' },
+  { id: 'learn',         label: 'Learn Next',   icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
+  { id: 'applications',  label: 'Applications', icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>' },
+  { id: 'profile',       label: 'Profile',      icon: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>' },
 ];
 
 function renderNav() {
@@ -282,6 +283,9 @@ async function renderDeepDive() {
           <div style="height:100%;border-radius:6px;background:${r.match_color};width:${r.match}%;"></div>
         </div>
         <div style="width:38px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:${r.match_color};">${r.match}%</div>
+        <div id="save-btn-${r.id}" class="tailor-btn" onclick="saveJob(${r.id}, this)" title="Save to applications">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">♡</span> Save
+        </div>
         <div class="tailor-btn" onclick="openTailor(${r.id},'${esc(r.title)}','${esc(c.name)}')">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">✎</span> Tailor
         </div>
@@ -1167,6 +1171,7 @@ async function renderScreen() {
     else if (S.screen === 'learn') await renderLearn();
     else if (S.screen === 'profile') await renderProfile();
     else if (S.screen === 'projects') await renderProjects();
+    else if (S.screen === 'applications') await renderApplications();
   } catch (e) {
     console.error(e);
     setHTML('screen', `<div style="padding:40px;text-align:center;color:#b1493a;">
@@ -1381,6 +1386,156 @@ function _renderProjectsConnected(data) {
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">${buildNextCards}</div>` : ''}
 
   </div>`);
+}
+
+// ── APPLICATIONS ──────────────────────────────────────────────────────────────
+
+async function saveJob(jobId, btn) {
+  if (btn) {
+    btn.textContent = '✓ Saved';
+    btn.style.color = '#15604a';
+    btn.style.pointerEvents = 'none';
+  }
+  try {
+    await api('POST', '/applications', { job_id: jobId, status: 'saved' });
+  } catch (e) {
+    if (btn) {
+      btn.innerHTML = '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;">♡</span> Save';
+      btn.style.color = '';
+      btn.style.pointerEvents = '';
+    }
+    console.warn('Save failed:', e.message);
+  }
+}
+
+const _STATUS_META = {
+  saved:        { label: 'Saved',       color: '#7a756a', bg: '#f0ece3',  border: '#e7e3da' },
+  applied:      { label: 'Applied',     color: '#2563a6', bg: '#e8f0fb',  border: '#b8d0f0' },
+  interviewing: { label: 'Interviewing',color: '#15604a', bg: '#e7f0ea',  border: '#cfe2d6' },
+  offer:        { label: 'Offer',       color: '#5a3e9c', bg: '#f0ecfb',  border: '#d4c8f3' },
+  rejected:     { label: 'Rejected',    color: '#b1493a', bg: '#f5e5e1',  border: '#e8c9c4' },
+};
+const _STATUS_ORDER = ['saved', 'applied', 'interviewing', 'offer', 'rejected'];
+
+async function renderApplications() {
+  setTopbar('Applications', 'Track your job applications');
+  setSyncLabel('LOADING…');
+  let data;
+  try {
+    data = await api('GET', '/applications');
+  } catch {
+    data = { applications: [], total: 0 };
+  }
+  setSyncLabel('READY');
+
+  const apps = data.applications || [];
+
+  if (!apps.length) {
+    setHTML('screen', `<div class="anim-in" style="padding:26px 28px 60px;">
+      <div style="max-width:480px;margin:60px auto;background:#fff;border:1px solid #e7e3da;border-radius:18px;padding:40px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:16px;opacity:0.3;">♡</div>
+        <div style="font-size:16px;font-weight:600;margin-bottom:8px;">No saved jobs yet</div>
+        <div style="font-size:13px;color:#7a756a;line-height:1.6;">
+          Hit <strong>Save</strong> on any open role in the Deep Dive to start tracking your applications here.
+        </div>
+        <button class="btn-primary" style="margin-top:22px;" onclick="navigate('deep')">Go to Deep Dive →</button>
+      </div>
+    </div>`);
+    return;
+  }
+
+  // Group by status
+  const grouped = {};
+  for (const st of _STATUS_ORDER) grouped[st] = [];
+  for (const a of apps) {
+    if (grouped[a.status]) grouped[a.status].push(a);
+  }
+
+  const columns = _STATUS_ORDER.map(st => {
+    const meta = _STATUS_META[st];
+    const items = grouped[st];
+    const cards = items.map(a => {
+      const skillTags = a.required_skills.slice(0, 4).map(s =>
+        `<span style="font-size:10.5px;font-weight:500;color:#55504a;background:#f6f4ef;border:1px solid #ece7dd;border-radius:5px;padding:1px 7px;">${esc(s)}</span>`
+      ).join('');
+
+      const urlLink = a.url
+        ? `<a href="${esc(a.url)}" target="_blank" style="font-size:11px;color:#15604a;text-decoration:none;" title="View job posting">↗ View</a>`
+        : '';
+
+      const nextStatuses = _STATUS_ORDER.filter(s => s !== st && s !== 'rejected');
+      const moveButtons = nextStatuses.slice(0, 2).map(s =>
+        `<button onclick="moveApp(${a.id},'${s}')" style="font-size:10.5px;padding:3px 8px;border:1px solid #e7e3da;border-radius:6px;background:#fff;cursor:pointer;color:#55504a;">${_STATUS_META[s].label}</button>`
+      ).join('');
+
+      return `<div style="background:#fff;border:1px solid #e7e3da;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:9px;">
+        <div style="display:flex;align-items:flex-start;gap:9px;">
+          ${colorAvatar(a.company_color, a.company_name.slice(0,2).toUpperCase(), 28, 7, 12)}
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(a.title)}">${esc(a.title)}</div>
+            <div style="font-size:11px;color:#7a756a;margin-top:2px;">${esc(a.company_name)}${a.location ? ' · ' + a.location : ''}</div>
+          </div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:${a.fit_color};flex:none;">${a.fit}%</div>
+        </div>
+        ${skillTags ? `<div style="display:flex;flex-wrap:wrap;gap:4px;">${skillTags}</div>` : ''}
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid #f0ece3;">
+          <div style="display:flex;gap:5px;">${moveButtons}</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${urlLink}
+            <button onclick="removeApp(${a.id})" style="font-size:11px;color:#b1493a;background:none;border:none;cursor:pointer;padding:0;" title="Remove">✕</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div style="flex:1;min-width:180px;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:${meta.bg};border:1px solid ${meta.border};border-radius:10px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:${meta.color};">${meta.label.toUpperCase()}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;margin-left:auto;">${items.length}</span>
+      </div>
+      ${cards || `<div style="padding:18px 12px;text-align:center;color:#bcb6aa;font-size:12px;border:1px dashed #e7e3da;border-radius:10px;">—</div>`}
+    </div>`;
+  }).join('');
+
+  const total = apps.length;
+  const appliedPlus = apps.filter(a => ['applied','interviewing','offer'].includes(a.status)).length;
+  const avgFit = total ? Math.round(apps.reduce((s, a) => s + a.fit, 0) / total) : 0;
+
+  setHTML('screen', `<div class="anim-in" style="padding:20px 28px 60px;">
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px;">
+      <div style="background:#fff;border:1px solid #e7e3da;border-radius:14px;padding:16px 18px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.6px;color:#9a9488;">TRACKED ROLES</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;letter-spacing:-1px;line-height:1;margin-top:9px;">${total}</div>
+        <div style="font-size:11.5px;color:#7a756a;margin-top:7px;">saved or in progress</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e7e3da;border-radius:14px;padding:16px 18px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.6px;color:#9a9488;">IN PROGRESS</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;letter-spacing:-1px;line-height:1;margin-top:9px;color:#15604a;">${appliedPlus}</div>
+        <div style="font-size:11.5px;color:#7a756a;margin-top:7px;">applied or interviewing</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e7e3da;border-radius:14px;padding:16px 18px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.6px;color:#9a9488;">AVG FIT</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;letter-spacing:-1px;line-height:1;margin-top:9px;color:${fitColor(avgFit)};">${avgFit}%</div>
+        <div style="font-size:11.5px;color:#7a756a;margin-top:7px;">across tracked roles</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;">
+      ${columns}
+    </div>
+
+  </div>`);
+}
+
+async function moveApp(appId, status) {
+  await api('PUT', `/applications/${appId}`, { status });
+  await renderApplications();
+}
+
+async function removeApp(appId) {
+  await api('DELETE', `/applications/${appId}`);
+  await renderApplications();
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────

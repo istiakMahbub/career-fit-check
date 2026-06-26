@@ -59,3 +59,13 @@ CREATE TABLE IF NOT EXISTS github_cache (
     build_next_json TEXT DEFAULT '[]',
     last_synced TEXT
 );
+
+CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    status TEXT DEFAULT 'saved',      -- saved | applied | interviewing | offer | rejected
+    notes TEXT DEFAULT '',
+    saved_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(job_id)                    -- one tracker row per job
+);
