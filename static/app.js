@@ -210,7 +210,11 @@ async function renderDeepDive() {
   }
 
   setSyncLabel('LOADING…');
-  const c = await api('GET', `/companies/${S.activeCompanyId}`);
+  const [c, appsData] = await Promise.all([
+    api('GET', `/companies/${S.activeCompanyId}`),
+    api('GET', '/applications').catch(() => ({ applications: [] })),
+  ]);
+  const savedJobIds = new Set((appsData.applications || []).map(a => a.job_id));
   setSyncLabel('READY');
   setTopbar(c.name, c.sector + (c.hq ? ' · ' + c.hq : ''));
 
@@ -283,8 +287,8 @@ async function renderDeepDive() {
           <div style="height:100%;border-radius:6px;background:${r.match_color};width:${r.match}%;"></div>
         </div>
         <div style="width:38px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:${r.match_color};">${r.match}%</div>
-        <div id="save-btn-${r.id}" class="tailor-btn" onclick="saveJob(${r.id}, this)" title="Save to applications">
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">♡</span> Save
+        <div id="save-btn-${r.id}" class="tailor-btn" onclick="saveJob(${r.id}, this)" title="Save to applications"${savedJobIds.has(r.id) ? ' style="color:#15604a;pointer-events:none;"' : ''}>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">${savedJobIds.has(r.id) ? '✓' : '♡'}</span> ${savedJobIds.has(r.id) ? 'Saved' : 'Save'}
         </div>
         <div class="tailor-btn" onclick="openTailor(${r.id},'${esc(r.title)}','${esc(c.name)}')">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">✎</span> Tailor
@@ -1478,6 +1482,8 @@ async function renderApplications() {
           <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:${a.fit_color};flex:none;">${a.fit}%</div>
         </div>
         ${skillTags ? `<div style="display:flex;flex-wrap:wrap;gap:4px;">${skillTags}</div>` : ''}
+        <div id="note-display-${a.id}" onclick="openNote(${a.id})" style="font-size:11px;color:${a.notes ? '#55504a' : '#bcb6aa'};cursor:text;line-height:1.45;white-space:pre-wrap;">${a.notes ? esc(a.notes) : 'Add a note…'}</div>
+        <textarea id="note-input-${a.id}" rows="3" onblur="saveNote(${a.id})" onkeydown="if(event.key==='Escape')this.blur()" placeholder="Add a note…" style="display:none;width:100%;font-size:11px;border:1px solid #cfe2d6;border-radius:6px;padding:5px 7px;resize:vertical;font-family:inherit;color:#1b1a17;background:#f9fdf9;outline:none;box-sizing:border-box;">${esc(a.notes)}</textarea>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid #f0ece3;">
           <div style="display:flex;gap:5px;">${moveButtons}</div>
           <div style="display:flex;align-items:center;gap:8px;">
@@ -1536,6 +1542,34 @@ async function moveApp(appId, status) {
 async function removeApp(appId) {
   await api('DELETE', `/applications/${appId}`);
   await renderApplications();
+}
+
+// ── NOTES ─────────────────────────────────────────────────────────────────────
+
+function openNote(appId) {
+  const display = document.getElementById(`note-display-${appId}`);
+  const input   = document.getElementById(`note-input-${appId}`);
+  if (!display || !input) return;
+  display.style.display = 'none';
+  input.style.display   = 'block';
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+async function saveNote(appId) {
+  const display = document.getElementById(`note-display-${appId}`);
+  const input   = document.getElementById(`note-input-${appId}`);
+  if (!display || !input) return;
+  const notes = input.value;
+  input.style.display   = 'none';
+  display.style.display = '';
+  display.textContent   = notes || 'Add a note…';
+  display.style.color   = notes ? '#55504a' : '#bcb6aa';
+  try {
+    await api('PUT', `/applications/${appId}`, { notes });
+  } catch (e) {
+    console.warn('Note save failed:', e.message);
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
