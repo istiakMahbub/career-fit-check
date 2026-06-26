@@ -854,7 +854,7 @@ function renderAddBody() {
     setHTML('add-body', `
       <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.6px;color:#9a9488;margin-bottom:8px;">COMPANY NAME</div>
       <div style="display:flex;gap:9px;align-items:center;">
-        <input id="add-input" class="text-input" placeholder="e.g. Stripe, Zalando, Booking.com" value="${esc(S.addInput)}"
+        <input id="add-input" class="text-input" placeholder="Company name or career page URL" value="${esc(S.addInput)}"
           onkeydown="if(event.key==='Enter')startAddScan()" oninput="S.addInput=this.value"/>
         <button class="btn-add" onclick="startAddScan()">Scan</button>
       </div>
@@ -864,7 +864,7 @@ function renderAddBody() {
       </div>
       <div style="display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid #e7e3da;border-radius:12px;padding:14px;margin-top:20px;">
         <span style="color:#b9791f;font-size:13px;flex:none;">✦</span>
-        <div style="font-size:11.5px;line-height:1.55;color:#55504a;">Career Fit Check reads the company's live job posts and extracts hiring velocity, in-demand skills and open roles — then scores each against your profile. Nothing is entered by hand.</div>
+        <div style="font-size:11.5px;line-height:1.55;color:#55504a;">Paste a company name <em>or</em> their direct career page URL (e.g. <code>careers.zalando.com</code> or a Greenhouse/Lever link). Career Fit Check scrapes live job posts, extracts required skills, and scores each role against your profile.</div>
       </div>
     `);
     setTimeout(() => document.getElementById('add-input')?.focus(), 50);
@@ -931,16 +931,53 @@ function renderAddBody() {
   }
 }
 
+function _isUrl(s) {
+  return /^https?:\/\/|^www\.|[a-z0-9-]+\.(com|io|co|net|org|de|nl|uk|eu)(\/|$)/i.test(s.trim());
+}
+
+function _nameFromUrl(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : 'https://' + url);
+    const host = u.hostname.replace(/^www\./, '');
+    // Greenhouse: boards.greenhouse.io/{slug} or greenhouse.io/{slug}
+    if (host.includes('greenhouse.io')) {
+      const p = u.pathname.split('/').filter(Boolean);
+      if (p.length) return p[0].split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    }
+    // Lever: jobs.lever.co/{slug}
+    if (host.includes('lever.co')) {
+      const p = u.pathname.split('/').filter(Boolean);
+      if (p.length) return p[0].split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    }
+    // careers.company.com, jobs.company.com → company
+    const stripped = host.replace(/^(careers|jobs|apply|work)\./i, '');
+    const domain = stripped.split('.')[0];
+    return domain.charAt(0).toUpperCase() + domain.slice(1);
+  } catch { return ''; }
+}
+
 async function startAddScan() {
-  const name = (document.getElementById('add-input')?.value || S.addInput || '').trim();
-  if (!name) return;
+  const raw = (document.getElementById('add-input')?.value || S.addInput || '').trim();
+  if (!raw) return;
+
+  let name, careerUrl;
+  if (_isUrl(raw)) {
+    const fullUrl = raw.startsWith('http') ? raw : 'https://' + raw;
+    name = _nameFromUrl(fullUrl) || raw;
+    careerUrl = fullUrl;
+  } else {
+    name = raw;
+    careerUrl = null;
+  }
+
   S.addInput = name;
   S.addPhase = 'scanning';
   renderAddBody();
 
   try {
-    // Create company
-    const created = await api('POST', '/companies', { name });
+    // Create company (include career_url if user pasted one)
+    const payload = careerUrl ? { name, career_url: careerUrl } : { name };
+    const created = await api('POST', '/companies', payload);
     // Sync it
     await api('POST', `/companies/${created.id}/sync`);
     // Fetch full detail for review

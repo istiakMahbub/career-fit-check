@@ -262,9 +262,8 @@ def github_connect(payload: ConnectRequest):
 
         # Count aligned roles (open roles where portfolio adds >30% fit)
         aligned = 0
-        user_skills_from_profile = json.loads(
-            (conn.execute("SELECT skills FROM user_profile WHERE id=1").fetchone() or {}).get("skills") or "[]"
-        )
+        _profile_row = conn.execute("SELECT skills FROM user_profile WHERE id=1").fetchone()
+        user_skills_from_profile = json.loads(_profile_row["skills"] if _profile_row else "[]")
         portfolio_as_skills = [{"name": s, "level": 80} for s in all_portfolio_skills]
         combined = {s["name"].lower(): s for s in user_skills_from_profile}
         for s in portfolio_as_skills:
@@ -319,9 +318,8 @@ def github_repos():
         build_next = json.loads(row["build_next_json"] or "[]")
 
         # Recalculate aligned roles
-        user_skills_from_profile = json.loads(
-            (conn.execute("SELECT skills FROM user_profile WHERE id=1").fetchone() or {}).get("skills") or "[]"
-        )
+        _profile_row = conn.execute("SELECT skills FROM user_profile WHERE id=1").fetchone()
+        user_skills_from_profile = json.loads(_profile_row["skills"] if _profile_row else "[]")
         portfolio_as_skills = [{"name": s, "level": 80} for s in all_portfolio_skills]
         combined = {s["name"].lower(): s for s in user_skills_from_profile}
         for s in portfolio_as_skills:
