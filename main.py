@@ -144,10 +144,10 @@ def compare(ids: str = ""):
             if profile_row and profile_row["skills"]
             else []
         )
-        user_map = {s["name"].lower(): s["level"] for s in user_skills}
+        user_skill_names = {s["name"].lower() for s in user_skills}
 
         companies_data = []
-        all_skill_sets: dict[str, dict[int, int]] = {}  # skill → {company_id: req_level}
+        all_skill_sets: dict[str, set[int]] = {}  # skill → set of company_ids that need it
 
         for cid in company_ids:
             row = conn.execute("SELECT * FROM companies WHERE id = ?", (cid,)).fetchone()
@@ -157,7 +157,6 @@ def compare(ids: str = ""):
             jobs = conn.execute(
                 "SELECT id FROM jobs WHERE company_id = ?", (cid,)
             ).fetchall()
-            total = len(jobs)
             skill_counts: dict[str, int] = {}
             for job in jobs:
                 for s in conn.execute(
@@ -196,50 +195,44 @@ def compare(ids: str = ""):
                 }
             )
 
-            # Build skill demand map for matrix
-            for skill, count in skill_counts.items():
-                freq = count / total if total else 0
-                req_level = min(100, round(freq * 120))
+            # Track which companies need each skill (presence only — no demand score)
+            for skill in skill_counts:
                 if skill not in all_skill_sets:
-                    all_skill_sets[skill] = {}
-                all_skill_sets[skill][cid] = req_level
+                    all_skill_sets[skill] = set()
+                all_skill_sets[skill].add(cid)
 
-        # Build comparison matrix rows (only skills demanded by ≥1 company)
+        # Build matrix rows — sorted by coverage (most universal first), no cap
+        n_selected = len(company_ids)
         rows = []
-        for skill, company_reqs in sorted(
-            all_skill_sets.items(), key=lambda x: -sum(x[1].values())
-        )[:15]:
-            my_level = user_map.get(skill.lower(), 0)
-            cells = []
-            for cid in company_ids:
-                req = company_reqs.get(cid, 0)
-                if not req:
-                    cells.append(
-                        {"txt": "—", "color": "#bcb6aa", "bg": "transparent",
-                         "dot": "transparent", "dot_op": 0}
-                    )
-                    continue
-                ratio = my_level / req if req else 0
-                if ratio >= 1.0:
-                    st, dot, bg, color = "meet", "#15604a", "#e7f0ea", "#15604a"
-                elif ratio >= 0.6:
-                    st, dot, bg, color = "close", "#b9791f", "#f7edda", "#9a7c33"
-                else:
-                    st, dot, bg, color = "gap", "#b1493a", "#f5e5e1", "#b1493a"
-                cells.append(
-                    {"txt": str(req), "color": color, "bg": bg, "dot": dot, "dot_op": 1}
-                )
-            rows.append(
-                {"skill": skill, "my": my_level, "my_w": min(100, my_level), "cells": cells}
-            )
+        for skill, company_set in sorted(
+            all_skill_sets.items(), key=lambda x: -len(x[1])
+        ):
+            coverage = len(company_set)
+            i_have = skill.lower() in user_skill_names
+            cells = [{"present": cid in company_set} for cid in company_ids]
+            rows.append({
+                "skill": skill,
+                "coverage": coverage,
+                "coverage_label": f"{coverage}/{n_selected}",
+                "i_have": i_have,
+                "cells": cells,
+            })
 
-        # Verdict
-        best = max(companies_data, key=lambda c: c["fit"]) if companies_data else None
-        verdict = (
-            f"Your strongest match is {best['name']} at {best['fit']}%."
-            if best
-            else "Select companies to compare."
-        )
+        # Verdict: highlight universal gaps first
+        universal_gaps = [
+            skill for skill, s in sorted(all_skill_sets.items(), key=lambda x: -len(x[1]))
+            if len(s) == n_selected and skill.lower() not in user_skill_names
+        ]
+        if universal_gaps:
+            verdict = (
+                f"{universal_gaps[0]} is needed across all {n_selected} selected "
+                f"{'company' if n_selected == 1 else 'companies'} — highest-priority gap to close."
+            )
+        elif companies_data:
+            best = max(companies_data, key=lambda c: c["fit"])
+            verdict = f"Your strongest match is {best['name']} at {best['fit']}%."
+        else:
+            verdict = "Select companies to compare."
 
         return {"companies": companies_data, "rows": rows, "verdict": verdict}
 

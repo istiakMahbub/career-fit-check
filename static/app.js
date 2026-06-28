@@ -578,48 +578,60 @@ async function renderCompare() {
     </div>`).join('');
 
   const headerCols = data.companies.map(c =>
-    `<div style="flex:1;min-width:90px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(c.short || c.name.slice(0,12))}</div>`
+    `<div style="flex:1;min-width:100px;display:flex;flex-direction:column;align-items:center;gap:5px;">
+      ${colorAvatar(c.color, c.initials, 26, 7, 10)}
+      <div style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px;text-align:center;">${esc(c.short || c.name.slice(0,12))}</div>
+    </div>`
   ).join('');
 
   const matrixRows = data.rows.map(row => {
     const cells = row.cells.map(cell =>
-      `<div style="flex:1;min-width:90px;display:flex;justify-content:center;">
-        <div style="display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${cell.color};background:${cell.bg};border-radius:7px;padding:4px 10px;min-width:54px;justify-content:center;">
-          <span style="width:6px;height:6px;border-radius:50%;background:${cell.dot};opacity:${cell.dot_op};"></span>
-          ${esc(cell.txt)}
-        </div>
+      `<div style="flex:1;min-width:100px;display:flex;justify-content:center;align-items:center;">
+        ${cell.present
+          ? `<div style="width:30px;height:30px;border-radius:50%;background:#e7f0ea;border:1.5px solid #cfe2d6;display:flex;align-items:center;justify-content:center;color:#15604a;font-size:15px;font-weight:700;">✓</div>`
+          : `<div style="width:30px;height:30px;border-radius:50%;background:#f3efe7;display:flex;align-items:center;justify-content:center;color:#c8c2b8;font-size:18px;line-height:1;">—</div>`
+        }
       </div>`
     ).join('');
-    return `<div style="display:flex;align-items:center;padding:11px 0;border-bottom:1px solid #f3efe7;">
-      <div style="width:130px;flex:none;font-size:12.5px;font-weight:500;">${esc(row.skill)}</div>
-      <div style="width:120px;flex:none;display:flex;align-items:center;gap:8px;padding-right:14px;">
-        <div style="flex:1;height:6px;background:#f0ece3;border-radius:6px;overflow:hidden;">
-          <div style="height:100%;border-radius:6px;background:#15604a;width:${row.my_w}%;"></div>
-        </div>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;width:22px;text-align:right;">${row.my}</span>
+
+    const isUniversal = row.coverage === cols;
+    const rowBg = row.i_have ? 'rgba(231,240,234,0.45)' : isUniversal ? 'rgba(245,229,225,0.35)' : 'transparent';
+    const statusBadge = row.i_have
+      ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#15604a;background:#e7f0ea;border:1px solid #cfe2d6;border-radius:10px;padding:2px 7px;">YOU HAVE IT</span>`
+      : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#b1493a;background:#f5e5e1;border:1px solid #f0cbc5;border-radius:10px;padding:2px 7px;">GAP</span>`;
+
+    return `<div style="display:flex;align-items:center;padding:10px 8px;border-bottom:1px solid #f3efe7;background:${rowBg};border-radius:6px;">
+      <div style="width:170px;flex:none;padding-right:10px;">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:4px;">${esc(row.skill)}</div>
+        ${statusBadge}
+      </div>
+      <div style="width:52px;flex:none;text-align:center;padding-right:8px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;color:${isUniversal ? '#15604a' : '#7a756a'};">${esc(row.coverage_label)}</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#9a9488;letter-spacing:0.3px;">COS</div>
       </div>
       ${cells}
     </div>`;
   }).join('');
 
   setHTML('screen', `<div class="anim-in" style="padding:26px 28px 60px;">
-    <div style="font-size:12.5px;color:#7a756a;margin-bottom:13px;">Pick companies to compare — your skill level is the baseline row.</div>
+    <div style="font-size:12.5px;color:#7a756a;margin-bottom:13px;">Select companies to compare. Skills are sorted by how many companies need them — most universal first.</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;">${chipsHtml}</div>
 
     <div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:14px;margin-bottom:22px;">${fitCards}</div>
 
     <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:8px 20px 16px;overflow-x:auto;">
-      <div style="display:flex;align-items:center;padding:14px 0 12px;border-bottom:1px solid #ece7dd;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.5px;color:#9a9488;">
-        <div style="width:130px;flex:none;">SKILL</div>
-        <div style="width:120px;flex:none;text-align:center;">YOU</div>
+      <div style="display:flex;align-items:flex-end;padding:14px 8px 12px;border-bottom:1px solid #ece7dd;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.5px;color:#9a9488;">
+        <div style="width:170px;flex:none;">SKILL</div>
+        <div style="width:52px;flex:none;text-align:center;">COS</div>
         ${headerCols}
       </div>
       ${matrixRows || '<div style="padding:20px 0;color:#9a9488;font-size:12px;">Sync companies to see skill data.</div>'}
-      <div style="display:flex;align-items:center;gap:18px;padding-top:14px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;">
-        <span style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#15604a;"></span>YOU MEET IT</span>
-        <span style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#b9791f;"></span>CLOSE</span>
-        <span style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#b1493a;"></span>GAP</span>
-        <span style="margin-left:auto;color:#7a756a;">NUMBER = LEVEL THEY ASK FOR</span>
+      <div style="display:flex;align-items:center;gap:18px;padding-top:14px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;flex-wrap:wrap;">
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;border-radius:50%;background:#e7f0ea;border:1.5px solid #cfe2d6;display:flex;align-items:center;justify-content:center;color:#15604a;font-size:9px;">✓</span>COMPANY NEEDS IT</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;border-radius:50%;background:#f3efe7;display:flex;align-items:center;justify-content:center;color:#c8c2b8;font-size:11px;">—</span>NOT REQUIRED</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(231,240,234,0.8);border:1px solid #cfe2d6;"></span>YOU HAVE IT</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(245,229,225,0.6);border:1px solid #f0cbc5;"></span>UNIVERSAL GAP</span>
+        <span style="margin-left:auto;">COS = companies needing this skill</span>
       </div>
     </div>
 
