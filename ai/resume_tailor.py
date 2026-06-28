@@ -1,17 +1,24 @@
 """
-Gemini-powered resume and cover letter tailoring.
-Uses gemini-2.5-flash (fast enough for interactive use; swap to pro for higher quality).
+Resume and cover letter tailoring.
+Uses Gemini first (best quality for creative writing); falls back to local AI
+(Ollama / LM Studio) when Gemini is rate-limited or unavailable.
 """
 
 import logging
 import os
 
+import requests as _http
 from dotenv import load_dotenv
 
 load_dotenv()
 log = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
+
+LOCAL_MODEL_NAME: str = os.getenv("LOCAL_MODEL_NAME", "").strip()
+LOCAL_AI_URL: str = (
+    os.getenv("LOCAL_AI_URL", "") or "http://localhost:11434"
+).rstrip("/")
 
 _client = None
 
@@ -22,20 +29,47 @@ def _get_client():
         return _client
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY must be set in .env")
+        raise RuntimeError("GEMINI_API_KEY not set")
     from google import genai
     _client = genai.Client(api_key=api_key)
     return _client
 
 
+def _local_call(prompt: str) -> str:
+    """Call local AI (Ollama / LM Studio) via OpenAI-compatible chat endpoint."""
+    if not LOCAL_MODEL_NAME:
+        return ""
+    try:
+        r = _http.post(
+            f"{LOCAL_AI_URL}/v1/chat/completions",
+            json={
+                "model": LOCAL_MODEL_NAME,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.5,
+                "stream": False,
+            },
+            timeout=180,
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        log.warning("Local AI tailor call failed: %s", e)
+        return ""
+
+
 def _call(prompt: str) -> str:
+    """Try Gemini first; fall back to local AI if Gemini fails or is rate-limited."""
     try:
         client = _get_client()
         resp = client.models.generate_content(model=MODEL, contents=prompt)
-        return (resp.text or "").strip()
+        result = (resp.text or "").strip()
+        if result:
+            return result
+        log.warning("Gemini returned empty response, trying local AI")
     except Exception as e:
-        log.error("Gemini tailor error: %s", e)
-        return ""
+        log.warning("Gemini tailor error (falling back to local AI): %s", e)
+
+    return _local_call(prompt)
 
 
 # ── length guidance ───────────────────────────────────────────────────────────

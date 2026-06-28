@@ -4,7 +4,9 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from typing import Optional
+
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -72,20 +74,27 @@ def get_stats():
         ).fetchone()["c"]
 
         profile_row = conn.execute(
-            "SELECT skills FROM user_profile WHERE id = 1"
+            "SELECT skills, target_role FROM user_profile WHERE id = 1"
         ).fetchone()
         user_skills = (
             json.loads(profile_row["skills"])
             if profile_row and profile_row["skills"]
             else []
         )
+        target_role = (profile_row["target_role"] or "") if profile_row else ""
 
         fits = []
         for c in company_rows:
-            job_rows = conn.execute(
-                "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1",
-                (c["id"],),
-            ).fetchall()
+            if target_role:
+                job_rows = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1 AND job_category = ?",
+                    (c["id"], target_role),
+                ).fetchall()
+            else:
+                job_rows = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1",
+                    (c["id"],),
+                ).fetchall()
             per_job = []
             for j in job_rows:
                 skills = [
@@ -106,6 +115,7 @@ def get_stats():
             "new_jobs": new_jobs,
             "avg_fit": avg_fit,
             "companies_tracked": len(company_rows),
+            "target_role": target_role,
         }
 
 
@@ -237,11 +247,19 @@ def compare(ids: str = ""):
 # ── GET /api/learn ────────────────────────────────────────────────────────────
 
 @app.get("/api/learn")
-def learn():
-    """Return ranked skill gaps across all companies."""
+def learn(
+    company_id: Optional[int] = Query(None),
+    category: Optional[str] = Query(None),
+):
+    """
+    Return ranked skill gaps.
+    Optionally filtered by company (company_id) and/or job category.
+    Category param overrides the profile career-focus setting for this request.
+    Returns ALL skills with a gap — no cap.
+    """
     with get_db() as conn:
         profile_row = conn.execute(
-            "SELECT skills FROM user_profile WHERE id = 1"
+            "SELECT skills, target_role FROM user_profile WHERE id = 1"
         ).fetchone()
         user_skills = (
             json.loads(profile_row["skills"])
@@ -249,17 +267,55 @@ def learn():
             else []
         )
         user_map = {s["name"].lower(): s["level"] for s in user_skills}
+        # category param overrides the profile target_role for this request
+        effective_category = category if category is not None else (
+            (profile_row["target_role"] or "") if profile_row else ""
+        )
 
-        company_rows = conn.execute("SELECT id, name FROM companies").fetchall()
-        if not company_rows:
-            return {"headline": "Add companies to get personalised recommendations.", "stats": [], "recs": []}
+        all_company_rows = conn.execute("SELECT id, name, color FROM companies ORDER BY name").fetchall()
+        if not all_company_rows:
+            return {
+                "headline": "Add companies to get personalised recommendations.",
+                "stats": [], "recs": [],
+                "active_company_id": None, "active_category": effective_category,
+                "available_companies": [], "available_categories": [],
+            }
 
-        # Aggregate skill demand across all companies
-        agg: dict[str, dict] = {}
-        for c in company_rows:
-            jobs = conn.execute(
-                "SELECT id FROM jobs WHERE company_id = ?", (c["id"],)
+        available_companies = [
+            {"id": c["id"], "name": c["name"], "color": c["color"]}
+            for c in all_company_rows
+        ]
+
+        # Apply company filter
+        filtered_companies = [c for c in all_company_rows if company_id is None or c["id"] == company_id]
+        n_companies = len(filtered_companies)
+
+        # Available categories across the filtered company set
+        if filtered_companies:
+            placeholders = ",".join("?" * len(filtered_companies))
+            ids = [c["id"] for c in filtered_companies]
+            cat_rows = conn.execute(
+                f"SELECT DISTINCT job_category FROM jobs "
+                f"WHERE company_id IN ({placeholders}) AND job_category IS NOT NULL AND job_category != '' "
+                f"ORDER BY job_category",
+                ids,
             ).fetchall()
+            available_categories = [r["job_category"] for r in cat_rows]
+        else:
+            available_categories = []
+
+        # Aggregate skill demand across filtered companies + category
+        agg: dict[str, dict] = {}
+        for c in filtered_companies:
+            if effective_category:
+                jobs = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ? AND job_category = ?",
+                    (c["id"], effective_category),
+                ).fetchall()
+            else:
+                jobs = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ?", (c["id"],)
+                ).fetchall()
             total = len(jobs)
             if total == 0:
                 continue
@@ -275,42 +331,37 @@ def learn():
                 freq = count / total
                 req_level = min(100, round(freq * 120))
                 if skill not in agg:
-                    agg[skill] = {
-                        "name": skill,
-                        "req_level": req_level,
-                        "company_count": 0,
-                        "companies": set(),
-                        "gap_weight": 0,
-                    }
+                    agg[skill] = {"name": skill, "req_level": req_level, "companies": set(), "gap_weight": 0}
                 a = agg[skill]
                 a["req_level"] = max(a["req_level"], req_level)
                 a["companies"].add(c["id"])
                 my_level = user_map.get(skill.lower(), 0)
-                gap = max(0, req_level - my_level)
-                a["gap_weight"] += gap * count
+                a["gap_weight"] += max(0, req_level - my_level) * count
 
-        # Filter to skills with actual gap, rank by gap_weight × company coverage
-        n_companies = len(company_rows)
+        # Rank by gap_weight × company coverage — no cap, return all gaps
         candidates = [
             v for v in agg.values()
             if (v["req_level"] - user_map.get(v["name"].lower(), 0)) > 5
         ]
         candidates.sort(key=lambda x: -(x["gap_weight"] * len(x["companies"])))
 
-        # Global fit stats
+        # Per-job fit stats for gain estimates
         all_per_job = []
-        for c in company_rows:
-            jobs = conn.execute(
-                "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1",
-                (c["id"],),
-            ).fetchall()
+        for c in filtered_companies:
+            if effective_category:
+                jobs = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1 AND job_category = ?",
+                    (c["id"], effective_category),
+                ).fetchall()
+            else:
+                jobs = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1",
+                    (c["id"],),
+                ).fetchall()
             for j in jobs:
-                sl = [
-                    s["skill"]
-                    for s in conn.execute(
-                        "SELECT skill FROM job_skills WHERE job_id = ?", (j["id"],)
-                    ).fetchall()
-                ]
+                sl = [s["skill"] for s in conn.execute(
+                    "SELECT skill FROM job_skills WHERE job_id = ?", (j["id"],)
+                ).fetchall()]
                 if sl:
                     all_per_job.append(sl)
 
@@ -319,14 +370,18 @@ def learn():
         avg_fit = round(sum(fits) / len(fits)) if fits else 0
 
         top = candidates[0] if candidates else None
+        gain_from_top = 0
+        if top and all_per_job:
+            boosted = [{**s, "level": top["req_level"]} if s["name"].lower() == top["name"].lower() else s for s in user_skills]
+            if not any(s["name"].lower() == top["name"].lower() for s in user_skills):
+                boosted = user_skills + [{"name": top["name"], "level": top["req_level"]}]
+            new_avg = round(sum(calculate_fit(boosted, sl) for sl in all_per_job) / len(all_per_job))
+            gain_from_top = max(0, new_avg - avg_fit)
 
         top_gap_names = [c["name"] for c in candidates[:4]]
-        cache_key = f"{','.join(top_gap_names)}:{avg_fit}:{n_companies}"
+        cache_key = f"{company_id}:{effective_category}:{','.join(top_gap_names)}:{avg_fit}"
         now = time.time()
-        if (
-            _learn_headline_cache["key"] == cache_key
-            and now - _learn_headline_cache["ts"] < _LEARN_CACHE_TTL
-        ):
+        if _learn_headline_cache["key"] == cache_key and now - _learn_headline_cache["ts"] < _LEARN_CACHE_TTL:
             headline = _learn_headline_cache["text"]
         else:
             try:
@@ -334,66 +389,94 @@ def learn():
             except Exception:
                 headline = (
                     f"Focus on {top_gap_names[0]} next — highest-leverage gap in your watchlist."
-                    if top_gap_names
-                    else "Keep your core skills sharp across your watchlist."
+                    if top_gap_names else "Keep your core skills sharp across your watchlist."
                 )
             _learn_headline_cache.update({"text": headline, "ts": now, "key": cache_key})
 
-        gain_from_top = 0
-        if top and all_per_job:
-            boosted = [
-                {**s, "level": top["req_level"]}
-                if s["name"].lower() == top["name"].lower()
-                else s
-                for s in user_skills
-            ]
-            if not any(s["name"].lower() == top["name"].lower() for s in user_skills):
-                boosted = user_skills + [{"name": top["name"], "level": top["req_level"]}]
-            new_fits = [calculate_fit(boosted, sl) for sl in all_per_job]
-            new_avg = round(sum(new_fits) / len(new_fits))
-            gain_from_top = max(0, new_avg - avg_fit)
+        # Fetch cached learning tips for filtered company + category
+        tip_map: dict[str, str] = {}
+        if company_id is not None:
+            tip_rows = conn.execute(
+                "SELECT skill, tip FROM skill_learning_tips WHERE company_id = ? AND category = ?",
+                (company_id, effective_category or ""),
+            ).fetchall()
+            tip_map = {r["skill"]: r["tip"] for r in tip_rows}
+            # Also pull all-category tips as fallback
+            if not tip_map:
+                tip_rows = conn.execute(
+                    "SELECT skill, tip FROM skill_learning_tips WHERE company_id = ? AND category = ''",
+                    (company_id,),
+                ).fetchall()
+                tip_map = {r["skill"]: r["tip"] for r in tip_rows}
+
+        # Batch-fetch job titles per skill so the frontend can show WHY IN DEMAND
+        skill_titles_map: dict[str, list[str]] = {}
+        if filtered_companies and candidates:
+            skill_names_list = list({a["name"] for a in candidates})
+            placeholders_c = ",".join("?" * len(filtered_companies))
+            placeholders_s = ",".join("?" * len(skill_names_list))
+            fc_ids = [c["id"] for c in filtered_companies]
+            if effective_category:
+                title_rows = conn.execute(
+                    f"SELECT DISTINCT js.skill, j.title FROM jobs j "
+                    f"JOIN job_skills js ON js.job_id = j.id "
+                    f"WHERE j.company_id IN ({placeholders_c}) AND j.job_category = ? "
+                    f"AND js.skill IN ({placeholders_s})",
+                    fc_ids + [effective_category] + skill_names_list,
+                ).fetchall()
+            else:
+                title_rows = conn.execute(
+                    f"SELECT DISTINCT js.skill, j.title FROM jobs j "
+                    f"JOIN job_skills js ON js.job_id = j.id "
+                    f"WHERE j.company_id IN ({placeholders_c}) "
+                    f"AND js.skill IN ({placeholders_s})",
+                    fc_ids + skill_names_list,
+                ).fetchall()
+            for trow in title_rows:
+                sn = trow["skill"]
+                if sn not in skill_titles_map:
+                    skill_titles_map[sn] = []
+                if len(skill_titles_map[sn]) < 5 and trow["title"] not in skill_titles_map[sn]:
+                    skill_titles_map[sn].append(trow["title"])
 
         recs = []
-        for i, a in enumerate(candidates[:8]):
+        for i, a in enumerate(candidates):  # no cap — return every gap
             my_level = user_map.get(a["name"].lower(), 0)
             n_cos = len(a["companies"])
             tag = "HIGH LEVERAGE" if n_cos >= max(2, n_companies // 2) else "BROADLY WANTED" if n_cos >= 2 else "TARGETED"
             tag_color = "#b1493a" if tag == "HIGH LEVERAGE" else "#9a7c33"
             tag_bg = "#f5e5e1" if tag == "HIGH LEVERAGE" else "#f7edda"
-
-            # fit gain estimate
             if all_per_job:
-                boosted = [
-                    {**s, "level": a["req_level"]}
-                    if s["name"].lower() == a["name"].lower()
-                    else s
-                    for s in user_skills
-                ]
+                boosted = [{**s, "level": a["req_level"]} if s["name"].lower() == a["name"].lower() else s for s in user_skills]
                 if not any(s["name"].lower() == a["name"].lower() for s in user_skills):
                     boosted = user_skills + [{"name": a["name"], "level": a["req_level"]}]
-                new_fits = [calculate_fit(boosted, sl) for sl in all_per_job]
-                gain = max(1, round(sum(new_fits) / len(new_fits)) - avg_fit)
+                gain = max(1, round(sum(calculate_fit(boosted, sl) for sl in all_per_job) / len(all_per_job)) - avg_fit)
             else:
                 gain = 1
-
-            recs.append(
-                {
-                    "rank": i + 1,
-                    "skill": a["name"],
-                    "level": my_level,
-                    "target": a["req_level"],
-                    "level_w": min(100, my_level),
-                    "target_w": min(100, a["req_level"]),
-                    "gain": gain,
-                    "companies": n_cos,
-                    "tag": tag,
-                    "tag_color": tag_color,
-                    "tag_bg": tag_bg,
-                    "rank_bg": "#15604a" if i == 0 else "#f0ece3",
-                    "rank_color": "#fff" if i == 0 else "#7a756a",
-                    "why": f"{n_cos} of your {n_companies} companies ask for it",
-                }
-            )
+            tip = tip_map.get(a["name"]) or ""
+            in_profile = my_level > 0
+            gap_pts = a["req_level"] - my_level
+            jobs_requiring = skill_titles_map.get(a["name"], [])
+            recs.append({
+                "rank": i + 1,
+                "skill": a["name"],
+                "level": my_level,
+                "target": a["req_level"],
+                "level_w": min(100, my_level),
+                "target_w": min(100, a["req_level"]),
+                "gain": gain,
+                "companies": n_cos,
+                "tag": tag,
+                "tag_color": tag_color,
+                "tag_bg": tag_bg,
+                "rank_bg": "#15604a" if i == 0 else "#f0ece3",
+                "rank_color": "#fff" if i == 0 else "#7a756a",
+                "why": f"{n_cos} of {n_companies} tracked {'company' if n_companies == 1 else 'companies'} ask for it",
+                "tip": tip,
+                "in_profile": in_profile,
+                "gap_pts": gap_pts,
+                "jobs_requiring": jobs_requiring,
+            })
 
         return {
             "headline": headline,
@@ -403,6 +486,10 @@ def learn():
                 {"value": f"{avg_fit}%", "label": "current avg fit"},
             ],
             "recs": recs,
+            "active_company_id": company_id,
+            "active_category": effective_category,
+            "available_companies": available_companies,
+            "available_categories": available_categories,
         }
 
 

@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import re
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -11,9 +12,9 @@ from pydantic import BaseModel
 from db.database import get_db
 from scrapers.adzuna import fetch_jobs
 from scrapers.career_page import scrape_company, ScrapedJob
-from ai.skill_extractor import extract_skills
+from ai.skill_extractor import extract_skills, extract_skills_and_category, extract_skills_batch, GeminiRateLimitError
 from ai.fit_calculator import calculate_fit, calculate_company_fit, skill_gap
-from ai.insights import generate_nudge, generate_summary
+from ai.insights import generate_nudge, generate_summary, generate_skill_tips
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,7 +26,7 @@ _COLORS = [
     "#b0792a", "#2a8a86", "#b1493a", "#3a6ea5",
 ]
 
-_SKILL_EXTRACTION_BATCH = 10   # max jobs to send to Gemini per sync
+_SKILL_EXTRACTION_BATCH = 30   # jobs per Gemini call (token budget)
 
 
 def _slugify(name: str) -> str:
@@ -97,12 +98,26 @@ def _user_skills(conn) -> list[dict]:
         return []
 
 
-def _job_skills_by_job(company_id: int, conn) -> list[list[str]]:
-    """Return one skill-list per extracted job for this company."""
-    jobs = conn.execute(
-        "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1",
-        (company_id,),
-    ).fetchall()
+def _user_target_role(conn) -> str:
+    """Return the user's career focus category, or empty string if not set."""
+    row = conn.execute("SELECT target_role FROM user_profile WHERE id = 1").fetchone()
+    if not row:
+        return ""
+    return row["target_role"] or ""
+
+
+def _job_skills_by_job(company_id: int, conn, target_category: str = "") -> list[list[str]]:
+    """Return one skill-list per extracted job for this company, filtered by category if set."""
+    if target_category:
+        jobs = conn.execute(
+            "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1 AND job_category = ?",
+            (company_id, target_category),
+        ).fetchall()
+    else:
+        jobs = conn.execute(
+            "SELECT id FROM jobs WHERE company_id = ? AND skills_extracted = 1",
+            (company_id,),
+        ).fetchall()
     result = []
     for job in jobs:
         skills = conn.execute(
@@ -142,11 +157,17 @@ def _upsert_history(company_id: int, job_count: int, conn) -> None:
         )
 
 
-def _skill_demand(company_id: int, conn, user_skills: list[dict]) -> list[dict]:
-    """Aggregate skill frequency across all jobs for a company."""
-    jobs = conn.execute(
-        "SELECT id FROM jobs WHERE company_id = ?", (company_id,)
-    ).fetchall()
+def _skill_demand(company_id: int, conn, user_skills: list[dict], target_category: str = "") -> list[dict]:
+    """Aggregate skill frequency across jobs for a company, filtered by category if set."""
+    if target_category:
+        jobs = conn.execute(
+            "SELECT id FROM jobs WHERE company_id = ? AND job_category = ?",
+            (company_id, target_category),
+        ).fetchall()
+    else:
+        jobs = conn.execute(
+            "SELECT id FROM jobs WHERE company_id = ?", (company_id,)
+        ).fetchall()
     total = len(jobs)
     if total == 0:
         return []
@@ -184,6 +205,7 @@ def list_companies():
     with get_db() as conn:
         companies = conn.execute("SELECT * FROM companies ORDER BY name").fetchall()
         user_skills = _user_skills(conn)
+        target_category = _user_target_role(conn)
 
         result = []
         for c in companies:
@@ -194,8 +216,15 @@ def list_companies():
             new_roles = conn.execute(
                 "SELECT COUNT(*) as cnt FROM jobs WHERE company_id = ? AND is_new = 1", (cid,)
             ).fetchone()["cnt"]
+            focus_roles = (
+                conn.execute(
+                    "SELECT COUNT(*) as cnt FROM jobs WHERE company_id = ? AND job_category = ?",
+                    (cid, target_category),
+                ).fetchone()["cnt"]
+                if target_category else open_roles
+            )
 
-            all_job_skills = _job_skills_by_job(cid, conn)
+            all_job_skills = _job_skills_by_job(cid, conn, target_category)
             fit = calculate_company_fit(user_skills, all_job_skills)
 
             weekly = _hiring_history(cid, conn)
@@ -215,6 +244,7 @@ def list_companies():
                     "career_url": c["career_url"] or "",
                     "open_roles": open_roles,
                     "new_roles": new_roles,
+                    "focus_roles": focus_roles,
                     "fit": fit,
                     "fit_color": _fit_color(fit),
                     "spark": _spark_points(weekly),
@@ -303,68 +333,117 @@ def sync_company(company_id: int):
         except Exception as e:
             log.error("Adzuna error for %s: %s", name, e)
 
-        # Step 1b: career page scraper fallback when Adzuna yields nothing
-        raw_jobs = list(adzuna_jobs)
+        # Step 1b: ALWAYS try career page scraper for full descriptions.
+        # Adzuna truncates descriptions to ~500 chars (marketing blurbs);
+        # Greenhouse/Lever APIs return complete job content which Gemini can extract skills from.
+        career_page_jobs = []
+        try:
+            career_page_jobs = scrape_company(
+                company_name=name,
+                career_url=career_url,
+                website=website,
+            )
+            if career_page_jobs:
+                log.info("Career page scraper: %d jobs for %s", len(career_page_jobs), name)
+        except Exception as e:
+            log.error("Career page scraper error for %s: %s", name, e)
+
+        # Merge: use career page jobs (full descriptions) first; supplement with
+        # any Adzuna jobs whose title doesn't appear in the career page results.
+        career_title_keys = {j.title.lower().strip() for j in career_page_jobs}
+        adzuna_supplement = [
+            j for j in adzuna_jobs
+            if j.title.lower().strip() not in career_title_keys
+        ]
+        raw_jobs = career_page_jobs + adzuna_supplement
         if not raw_jobs:
-            log.info("Adzuna returned 0 jobs for %s — trying career page scraper", name)
-            try:
-                scraped = scrape_company(
-                    company_name=name,
-                    career_url=career_url,
-                    website=website,
-                )
-                # Normalise to a common shape so insert loop below handles both
-                raw_jobs = scraped  # ScrapedJob and AdzunaJob share the same fields
-            except Exception as e:
-                log.error("Career page scraper error for %s: %s", name, e)
+            raw_jobs = list(adzuna_jobs)
 
         new_count = 0
         for aj in raw_jobs:
             url = aj.url or ""
-            if url and conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone():
-                continue
-            # duplicate check by title when no URL
-            if not url and conn.execute(
-                "SELECT id FROM jobs WHERE company_id = ? AND title = ?",
+            desc = aj.description or ""
+
+            # Check by URL first (same source)
+            if url:
+                existing = conn.execute(
+                    "SELECT id, description FROM jobs WHERE url = ?", (url,)
+                ).fetchone()
+                if existing:
+                    if len(desc) > len(existing["description"] or ""):
+                        conn.execute(
+                            "UPDATE jobs SET description = ?, skills_extracted = 0 WHERE id = ?",
+                            (desc, existing["id"]),
+                        )
+                    continue
+
+            # Check by title (catches cross-source duplicates, e.g. GH + Adzuna same role)
+            existing = conn.execute(
+                "SELECT id, description FROM jobs WHERE company_id = ? AND title = ?",
                 (company_id, aj.title),
-            ).fetchone():
+            ).fetchone()
+            if existing:
+                if len(desc) > len(existing["description"] or ""):
+                    conn.execute(
+                        "UPDATE jobs SET description = ?, skills_extracted = 0 WHERE id = ?",
+                        (desc, existing["id"]),
+                    )
                 continue
 
             conn.execute(
                 "INSERT INTO jobs (company_id, title, location, description, url, "
                 "posted_date, is_new, skills_extracted) VALUES (?, ?, ?, ?, ?, ?, 1, 0)",
-                (company_id, aj.title, aj.location, aj.description, url, aj.posted_date),
+                (company_id, aj.title, aj.location, desc, url, aj.posted_date),
             )
             new_count += 1
 
         # Step 2: AI skill extraction (capped to avoid long blocking)
+        # Reset the flag for any jobs that previously ran but produced no skills
+        # (this happens when descriptions were too short, e.g. Adzuna snippets).
+        conn.execute(
+            """UPDATE jobs SET skills_extracted = 0
+               WHERE company_id = ?
+               AND skills_extracted = 1
+               AND id NOT IN (SELECT DISTINCT job_id FROM job_skills)""",
+            (company_id,),
+        )
+
         unprocessed = conn.execute(
-            "SELECT id, description FROM jobs "
-            "WHERE company_id = ? AND skills_extracted = 0 "
-            f"LIMIT {_SKILL_EXTRACTION_BATCH}",
+            "SELECT id, title, description FROM jobs "
+            "WHERE company_id = ? AND skills_extracted = 0",
             (company_id,),
         ).fetchall()
 
         extracted_count = 0
-        for job in unprocessed:
+        rate_limited = False
+        for i, batch_start in enumerate(range(0, len(unprocessed), _SKILL_EXTRACTION_BATCH)):
+            if i > 0:
+                time.sleep(4)  # avoid Gemini 10 RPM free-tier limit
+            batch = unprocessed[batch_start:batch_start + _SKILL_EXTRACTION_BATCH]
+            job_texts = [
+                f"Job Title: {job['title']}\n\n{job['description'] or ''}".strip()
+                for job in batch
+            ]
             try:
-                skills = extract_skills(job["description"] or "")
-            except RuntimeError as e:
-                log.warning("Skill extraction unavailable: %s", e)
-                skills = []
-            except Exception as e:
-                log.error("Skill extraction error for job %d: %s", job["id"], e)
-                skills = []
-
-            if skills:
-                conn.executemany(
-                    "INSERT INTO job_skills (job_id, skill) VALUES (?, ?)",
-                    [(job["id"], s) for s in skills],
+                batch_results = extract_skills_batch(job_texts)
+                for job, (skills, category) in zip(batch, batch_results):
+                    if skills:
+                        conn.executemany(
+                            "INSERT INTO job_skills (job_id, skill) VALUES (?, ?)",
+                            [(job["id"], s) for s in skills],
+                        )
+                        extracted_count += 1
+                    conn.execute(
+                        "UPDATE jobs SET skills_extracted = 1, job_category = ? WHERE id = ?",
+                        (category, job["id"]),
+                    )
+            except GeminiRateLimitError as e:
+                log.warning(
+                    "Gemini rate limit hit for %s — %d/%d jobs extracted, rest retry on next sync: %s",
+                    name, extracted_count, len(unprocessed), e,
                 )
-                extracted_count += 1
-            conn.execute(
-                "UPDATE jobs SET skills_extracted = 1 WHERE id = ?", (job["id"],)
-            )
+                rate_limited = True
+                break
 
         # Step 3: update hiring history & last_synced
         total_jobs = conn.execute(
@@ -408,7 +487,70 @@ def sync_company(company_id: int):
         except Exception as e:
             log.warning("Insights generation skipped for %s: %s", name, e)
 
-        source = "adzuna" if adzuna_jobs else ("career_page" if raw_jobs else "none")
+        # Step 5: generate skill learning tips per category, grounded in job descriptions
+        try:
+            distinct_cats = conn.execute(
+                "SELECT DISTINCT job_category FROM jobs WHERE company_id = ? AND job_category IS NOT NULL AND job_category != ''",
+                (company_id,),
+            ).fetchall()
+            categories_to_tip = [r["job_category"] for r in distinct_cats] + [""]  # "" = all-categories tips
+
+            for cat in categories_to_tip:
+                # Compute top 15 skill gaps for this company+category
+                if cat:
+                    cat_jobs = conn.execute(
+                        "SELECT id FROM jobs WHERE company_id = ? AND job_category = ?", (company_id, cat)
+                    ).fetchall()
+                else:
+                    cat_jobs = conn.execute("SELECT id FROM jobs WHERE company_id = ?", (company_id,)).fetchall()
+
+                skill_counts: dict[str, int] = {}
+                for j in cat_jobs:
+                    for s in conn.execute("SELECT skill FROM job_skills WHERE job_id = ?", (j["id"],)).fetchall():
+                        skill_counts[s["skill"]] = skill_counts.get(s["skill"], 0) + 1
+
+                if not skill_counts:
+                    continue
+
+                user_map_local = {s["name"].lower(): s["level"] for s in user_skills}
+                gap_skills = sorted(
+                    [sk for sk in skill_counts if (min(100, round(skill_counts[sk] / len(cat_jobs) * 120)) - user_map_local.get(sk.lower(), 0)) > 5],
+                    key=lambda sk: -skill_counts[sk],
+                )[:15]
+
+                if not gap_skills:
+                    continue
+
+                # Sample job descriptions for context (title + first 300 chars of description)
+                sample_jobs = conn.execute(
+                    "SELECT title, description FROM jobs WHERE company_id = ? "
+                    + ("AND job_category = ? " if cat else "")
+                    + "AND description IS NOT NULL AND description != '' LIMIT 8",
+                    (company_id, cat) if cat else (company_id,),
+                ).fetchall()
+                job_samples = [
+                    f"{j['title']}: {(j['description'] or '')[:300].strip()}"
+                    for j in sample_jobs
+                ]
+
+                tips = generate_skill_tips(gap_skills, name, job_samples, cat)
+                for skill, tip in tips.items():
+                    conn.execute(
+                        "INSERT INTO skill_learning_tips (company_id, category, skill, tip, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?) "
+                        "ON CONFLICT(company_id, category, skill) DO UPDATE SET tip = excluded.tip, updated_at = excluded.updated_at",
+                        (company_id, cat, skill, tip, datetime.utcnow().isoformat()),
+                    )
+                log.info("Generated %d skill tips for %s cat=%r", len(tips), name, cat or "all")
+        except Exception as e:
+            log.warning("Skill tip generation skipped for %s: %s", name, e)
+
+        source = (
+            "career_page+adzuna" if (career_page_jobs and adzuna_jobs)
+            else "career_page" if career_page_jobs
+            else "adzuna" if adzuna_jobs
+            else "none"
+        )
         return {
             "jobs_fetched": len(raw_jobs),
             "jobs_new": new_count,
@@ -421,7 +563,7 @@ def sync_company(company_id: int):
 # ── GET /api/companies/{id} ──────────────────────────────────────────────────
 
 @router.get("/companies/{company_id}")
-def get_company(company_id: int):
+def get_company(company_id: int, category: Optional[str] = None):
     with get_db() as conn:
         company = conn.execute(
             "SELECT * FROM companies WHERE id = ?", (company_id,)
@@ -432,12 +574,14 @@ def get_company(company_id: int):
         cid = company["id"]
         color = company["color"]
         user_skills = _user_skills(conn)
+        # Per-request category overrides the global profile career focus
+        target_category = category if category is not None else _user_target_role(conn)
 
         # Jobs & fit
         jobs = conn.execute(
             "SELECT * FROM jobs WHERE company_id = ? ORDER BY scraped_date DESC", (cid,)
         ).fetchall()
-        all_job_skills = _job_skills_by_job(cid, conn)
+        all_job_skills = _job_skills_by_job(cid, conn, target_category)
         fit = calculate_company_fit(user_skills, all_job_skills)
         open_roles = len(jobs)
         new_roles = sum(1 for j in jobs if j["is_new"])
@@ -459,8 +603,8 @@ def get_company(company_id: int):
             for i, v in enumerate(weekly)
         ]
 
-        # Skill demand
-        demand = _skill_demand(cid, conn, user_skills)
+        # Skill demand (filtered by career focus)
+        demand = _skill_demand(cid, conn, user_skills, target_category)
 
         skills_in_demand = [
             {
@@ -476,7 +620,7 @@ def get_company(company_id: int):
 
         # Open roles with per-role match %
         roles_out = []
-        for job in jobs[:20]:
+        for job in jobs:
             job_skill_list = [
                 s["skill"]
                 for s in conn.execute(
@@ -486,6 +630,8 @@ def get_company(company_id: int):
             match = calculate_fit(user_skills, job_skill_list) if job_skill_list else 0
             gaps = skill_gap(user_skills, job_skill_list)
             nudge = f"Closest gap · {gaps[0]}" if gaps and match < 80 else ""
+            cat = job["job_category"] or ""
+            in_focus = (not target_category) or (cat == target_category)
             roles_out.append(
                 {
                     "id": job["id"],
@@ -497,6 +643,8 @@ def get_company(company_id: int):
                     "match": match,
                     "match_color": _fit_color(match),
                     "nudge": nudge,
+                    "category": cat,
+                    "in_focus": in_focus,
                 }
             )
         roles_out.sort(key=lambda r: -r["match"])
@@ -579,6 +727,17 @@ def get_company(company_id: int):
             else "Worth a 6–12 month plan — see what to learn next."
         )
 
+        focus_roles = sum(1 for j in jobs if j["job_category"] == target_category) if target_category else open_roles
+
+        # Available job categories for this company (for the in-page department filter)
+        cat_rows = conn.execute(
+            "SELECT job_category, COUNT(*) as cnt FROM jobs "
+            "WHERE company_id = ? AND job_category IS NOT NULL AND job_category != '' "
+            "GROUP BY job_category ORDER BY cnt DESC",
+            (cid,),
+        ).fetchall()
+        available_categories = [{"name": r["job_category"], "count": r["cnt"]} for r in cat_rows]
+
         return {
             "id": cid,
             "name": company["name"],
@@ -591,6 +750,9 @@ def get_company(company_id: int):
             "last_synced": company["last_synced"] or "",
             "open_roles": open_roles,
             "new_roles": new_roles,
+            "focus_roles": focus_roles,
+            "focus_active": bool(target_category),
+            "target_category": target_category,
             "fit": fit,
             "fit_color": _fit_color(fit),
             "fit_label": fit_label,
@@ -632,4 +794,6 @@ def get_company(company_id: int):
                     "color": _fit_color(fit),
                 },
             ],
+            "available_categories": available_categories,
+            "active_category": target_category,
         }

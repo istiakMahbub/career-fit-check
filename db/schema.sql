@@ -69,3 +69,13 @@ CREATE TABLE IF NOT EXISTS applications (
     updated_at TEXT DEFAULT (datetime('now')),
     UNIQUE(job_id)                    -- one tracker row per job
 );
+
+-- AI-generated per-skill learning tips, cached per company + category
+CREATE TABLE IF NOT EXISTS skill_learning_tips (
+    company_id INTEGER NOT NULL DEFAULT -1,  -- -1 = cross-company
+    category TEXT NOT NULL DEFAULT '',
+    skill TEXT NOT NULL,
+    tip TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (company_id, category, skill)
+);

@@ -32,6 +32,7 @@ class UpdateProfileRequest(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     skills: Optional[list[dict]] = None
+    target_role: Optional[str] = None  # "" to clear, category string to set
 
 
 @router.put("/profile")
@@ -43,9 +44,9 @@ def update_profile(payload: UpdateProfileRequest):
 
         name = payload.name if payload.name is not None else row["name"]
         role = payload.role if payload.role is not None else row["role"]
+        target_role = payload.target_role if payload.target_role is not None else (row["target_role"] or "")
 
         if payload.skills is not None:
-            # Validate each skill has name + level
             validated = []
             for s in payload.skills:
                 if not isinstance(s.get("name"), str) or not s["name"].strip():
@@ -57,11 +58,11 @@ def update_profile(payload: UpdateProfileRequest):
             skills_json = row["skills"]
 
         conn.execute(
-            "UPDATE user_profile SET name = ?, role = ?, skills = ? WHERE id = 1",
-            (name, role, skills_json),
+            "UPDATE user_profile SET name = ?, role = ?, skills = ?, target_role = ? WHERE id = 1",
+            (name, role, skills_json, target_role or None),
         )
         skills = _parse_skills(skills_json)
-        return _profile_dict({"name": name, "role": role, "id": 1}, skills)
+        return _profile_dict({"name": name, "role": role, "target_role": target_role, "id": 1}, skills)
 
 
 # ── POST /api/profile/skill ──────────────────────────────────────────────────
@@ -260,6 +261,7 @@ def _profile_dict(row, skills: list[dict]) -> dict:
         "id": row["id"],
         "name": row["name"] or "",
         "role": row["role"] or "",
+        "target_role": (row["target_role"] or "") if "target_role" in (row.keys() if hasattr(row, "keys") else {}) else "",
         "skills": skills,
         "skill_count": len(skills),
         "initials": _initials(row["name"] or ""),

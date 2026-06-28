@@ -1,13 +1,17 @@
 """
-Gemini-powered insights:
+AI-powered insights:
   - one-line nudge (hiring trend signal, ≤20 words)
   - 2-3 sentence company summary for Deep Dive
   - learn-next hero headline across the full watchlist
+
+Uses Gemini first (better quality); falls back to local AI (Ollama / LM Studio)
+when Gemini is rate-limited or unavailable.
 """
 
 import logging
 import os
 
+import requests as _http
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +19,11 @@ load_dotenv()
 log = logging.getLogger(__name__)
 
 MODEL_DEFAULT = "gemini-2.5-flash"
+
+LOCAL_MODEL_NAME: str = os.getenv("LOCAL_MODEL_NAME", "").strip()
+LOCAL_AI_URL: str = (
+    os.getenv("LOCAL_AI_URL", "") or "http://localhost:11434"
+).rstrip("/")
 
 _client = None
 
@@ -25,20 +34,47 @@ def _get_client():
         return _client
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY must be set in .env")
+        raise RuntimeError("GEMINI_API_KEY not set")
     from google import genai
     _client = genai.Client(api_key=api_key)
     return _client
 
 
+def _local_call(prompt: str) -> str:
+    """Call local AI (Ollama / LM Studio) via OpenAI-compatible chat endpoint."""
+    if not LOCAL_MODEL_NAME:
+        return ""
+    try:
+        r = _http.post(
+            f"{LOCAL_AI_URL}/v1/chat/completions",
+            json={
+                "model": LOCAL_MODEL_NAME,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.4,
+                "stream": False,
+            },
+            timeout=120,
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        log.warning("Local AI insights call failed: %s", e)
+        return ""
+
+
 def _call(prompt: str) -> str:
+    """Try Gemini first; fall back to local AI if Gemini fails or is rate-limited."""
     try:
         client = _get_client()
         response = client.models.generate_content(model=MODEL_DEFAULT, contents=prompt)
-        return (response.text or "").strip()
+        result = (response.text or "").strip()
+        if result:
+            return result
+        log.warning("Gemini returned empty response, trying local AI")
     except Exception as e:
-        log.error("Gemini insights error: %s", e)
-        return ""
+        log.warning("Gemini insights error (falling back to local AI): %s", e)
+
+    return _local_call(prompt)
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -184,6 +220,60 @@ def generate_build_next(
     except Exception:
         pass
     return []
+
+
+_SKILL_TIPS_PROMPT = """\
+You are a career coach. Based on these job postings from {company_name}{category_label}, \
+write ONE sentence per skill: what specifically the candidate should learn and to what depth, \
+grounded in what these actual roles require. Be concrete — mention tools, modules, or techniques \
+where relevant. Do NOT give generic advice.
+
+Sample job titles and descriptions:
+{job_samples}
+
+Return ONLY a JSON object mapping each skill name to its one-sentence tip.
+Include every skill listed below.
+Skills: {skills_list}"""
+
+
+def generate_skill_tips(
+    skills: list[str],
+    company_name: str,
+    job_samples: list[str],
+    category: str = "",
+) -> dict[str, str]:
+    """
+    Generate one-sentence learning tips for each skill, grounded in the company's job postings.
+    Returns {skill_name: tip_string}. Uses Gemini → local AI fallback.
+    """
+    if not skills:
+        return {}
+    import json as _json
+
+    category_label = f" ({category} roles)" if category else ""
+    samples_text = "\n".join(f"• {s}" for s in job_samples[:12]) or "No descriptions available."
+    prompt = _SKILL_TIPS_PROMPT.format(
+        company_name=company_name,
+        category_label=category_label,
+        job_samples=samples_text,
+        skills_list=", ".join(skills),
+    )
+    raw = _call(prompt)
+    if not raw:
+        return {}
+
+    cleaned = raw.strip()
+    # strip markdown fences if present
+    import re as _re
+    cleaned = _re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=_re.MULTILINE).strip()
+    m = _re.search(r"\{.*\}", cleaned, _re.DOTALL)
+    if not m:
+        return {}
+    try:
+        result = _json.loads(m.group(0))
+        return {k: str(v) for k, v in result.items() if isinstance(v, str)}
+    except Exception:
+        return {}
 
 
 def generate_learn_headline(

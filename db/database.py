@@ -34,7 +34,29 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(schema)
         _seed_user_profile(conn)
+        _run_migrations(conn)
     print(f"Database initialized at {DB_PATH}")
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply additive schema migrations that are safe to run repeatedly."""
+    migrations = [
+        "ALTER TABLE jobs ADD COLUMN job_category TEXT DEFAULT NULL",
+        "ALTER TABLE user_profile ADD COLUMN target_role TEXT DEFAULT NULL",
+        """CREATE TABLE IF NOT EXISTS skill_learning_tips (
+            company_id INTEGER NOT NULL DEFAULT -1,
+            category TEXT NOT NULL DEFAULT '',
+            skill TEXT NOT NULL,
+            tip TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (company_id, category, skill)
+        )""",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 def _seed_user_profile(conn: sqlite3.Connection) -> None:

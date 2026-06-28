@@ -7,11 +7,13 @@ const S = {
   activeCompanyId: null,
   companies: [],
   stats: { total_jobs: 0, new_jobs: 0, avg_fit: 0, companies_tracked: 0 },
-  profile: { name: '', role: '', skills: [], skill_count: 0, initials: '' },
+  profile: { name: '', role: '', target_role: '', skills: [], skill_count: 0, initials: '' },
   compareIds: new Set(),
   addPhase: 'input',   // 'input' | 'scanning' | 'review'
   addInput: '',
   addResult: null,     // company detail after sync
+  deepCategory: null,  // active department filter on Deep Dive page
+  learnFilters: { company_id: null, category: null },  // Learn Next filter state
 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -85,11 +87,15 @@ function renderNav() {
 function renderProfileFooter() {
   const p = S.profile;
   const avgFit = S.stats.avg_fit || 0;
+  const focusLine = p.target_role
+    ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#15604a;margin-top:2px;">● ${esc(p.target_role)}</div>`
+    : '';
   setHTML('profile-footer', `
     <div style="width:34px;height:34px;border-radius:50%;background:#1b1a17;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;flex:none;">${esc(p.initials || initials(p.name))}</div>
     <div style="flex:1;min-width:0;">
       <div style="font-size:12.5px;font-weight:600;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>
       <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;margin-top:2px;">AVG FIT ${avgFit}%</div>
+      ${focusLine}
     </div>
   `);
   document.getElementById('profile-footer').onclick = () => navigate('profile');
@@ -118,10 +124,13 @@ async function renderOverview() {
   S.stats = stats;
   renderProfileFooter();
 
+  const focusActive = !!(stats.target_role);
+  S.profile.target_role = stats.target_role || '';
+
   const statCards = [
     { label: 'TOTAL OPEN ROLES', value: stats.total_jobs, delta: '', sub: 'across watchlist', deltaColor: '#9a9488' },
     { label: 'NEW THIS WEEK', value: stats.new_jobs, delta: '', sub: 'recently posted', deltaColor: '#b1493a' },
-    { label: 'AVG FIT', value: stats.avg_fit + '%', delta: '', sub: 'across all companies', deltaColor: fitColor(stats.avg_fit) },
+    { label: focusActive ? 'AVG FIT · ' + esc(stats.target_role) : 'AVG FIT', value: stats.avg_fit + '%', delta: '', sub: focusActive ? 'focused roles only' : 'across all companies', deltaColor: fitColor(stats.avg_fit) },
     { label: 'COMPANIES TRACKED', value: stats.companies_tracked, delta: '', sub: 'on your watchlist', deltaColor: '#9a9488' },
   ];
 
@@ -142,8 +151,18 @@ async function renderOverview() {
        </div>`
     : companies.map(c => companyCard(c)).join('');
 
+  const focusBanner = focusActive ? `
+    <div style="background:#e7f0ea;border:1px solid #cfe2d6;border-radius:12px;padding:10px 16px;margin-bottom:18px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:14px;">🎯</span>
+      <span style="font-size:12.5px;font-weight:600;color:#15604a;">Career focus: ${esc(stats.target_role)}</span>
+      <span style="font-size:12px;color:#2f6f4e;">— fit scores and skill recommendations are filtered to this role type</span>
+      <span style="flex:1;"></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#15604a;cursor:pointer;text-decoration:underline;" onclick="navigate('profile')">Change focus</span>
+    </div>` : '';
+
   setHTML('screen', `<div class="anim-in" style="padding:26px 28px 60px;">
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px;">${statsHtml}</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">${statsHtml}</div>
+    ${focusBanner}
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:13px;">
       <div style="font-size:13px;font-weight:600;">Your watchlist</div>
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#9a9488;">${companies.length} COMPANIES · SORTED BY FIT</div>
@@ -179,6 +198,9 @@ function companyCard(c) {
           <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;">${c.open_roles}</span>
           <span style="font-size:10.5px;font-weight:600;color:${c.vel_color};">${esc(c.vel_label)}</span>
         </div>
+        ${S.profile.target_role && c.focus_roles !== c.open_roles
+          ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#15604a;margin-top:2px;">${c.focus_roles} in focus</div>`
+          : ''}
       </div>
       <div style="text-align:right;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;letter-spacing:0.5px;">YOUR FIT</div>
@@ -195,7 +217,23 @@ async function removeCompany(id) {
 }
 
 function goDeep(id) {
+  if (id !== S.activeCompanyId) S.deepCategory = null;
   navigate('deep', { companyId: id });
+}
+
+async function setDeepCategory(cat) {
+  S.deepCategory = (S.deepCategory === cat) ? null : cat;
+  await renderDeepDive();
+}
+
+async function setLearnFilter(field, value) {
+  if (S.learnFilters[field] === value) {
+    S.learnFilters[field] = null;
+  } else {
+    S.learnFilters[field] = value;
+    if (field === 'company_id') S.learnFilters.category = null; // reset category when switching company
+  }
+  await renderLearn();
 }
 
 // ── DEEP DIVE ─────────────────────────────────────────────────────────────────
@@ -210,8 +248,9 @@ async function renderDeepDive() {
   }
 
   setSyncLabel('LOADING…');
+  const catParam = S.deepCategory ? `?category=${encodeURIComponent(S.deepCategory)}` : '';
   const [c, appsData] = await Promise.all([
-    api('GET', `/companies/${S.activeCompanyId}`),
+    api('GET', `/companies/${S.activeCompanyId}${catParam}`),
     api('GET', '/applications').catch(() => ({ applications: [] })),
   ]);
   const savedJobIds = new Set((appsData.applications || []).map(a => a.job_id));
@@ -266,17 +305,21 @@ async function renderDeepDive() {
     </div>`;
   }).join('');
 
-  // Open roles
+  // Open roles — show category badge, dim jobs outside focus
   const rolesHtml = (c.roles || []).map(r => {
     const newBadge = r.is_new ? '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:8.5px;font-weight:600;color:#b1493a;background:#f5e5e1;border-radius:4px;padding:1px 5px;">NEW</span>' : '';
+    const catBadge = r.category
+      ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:${r.in_focus ? '#15604a' : '#9a9488'};background:${r.in_focus ? '#e7f0ea' : '#f0ece3'};border-radius:4px;padding:1px 5px;flex:none;">${esc(r.category)}</span>`
+      : '';
     const nudgeHtml = r.nudge ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#b9791f;margin-top:6px;">▲ ${esc(r.nudge)}</div>` : '';
     const urlPart = r.url
       ? `<a href="${esc(r.url)}" target="_blank" style="font-size:11px;color:#15604a;text-decoration:none;margin-right:6px;" title="View job">↗</a>`
       : '';
-    return `<div style="display:flex;align-items:center;gap:14px;padding:13px 0;border-top:1px solid #f0ece3;">
+    const rowOpacity = (c.focus_active && !r.in_focus) ? 'opacity:0.45;' : '';
+    return `<div style="display:flex;align-items:center;gap:14px;padding:13px 0;border-top:1px solid #f0ece3;${rowOpacity}">
       <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:13.5px;font-weight:600;">${esc(r.title)}</span>${newBadge}
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:13.5px;font-weight:600;">${esc(r.title)}</span>${newBadge}${catBadge}
         </div>
         <div style="font-size:11.5px;color:#7a756a;margin-top:3px;">${esc(r.location)}${r.posted_date ? ' · ' + r.posted_date.slice(0,10) : ''}</div>
         ${nudgeHtml}
@@ -371,9 +414,24 @@ async function renderDeepDive() {
           </div>
         </div>
 
+        ${(() => {
+          const cats = c.available_categories || [];
+          if (!cats.length) return '';
+          const allActive = !S.deepCategory;
+          const chips = cats.map(cat => {
+            const active = cat.name === S.deepCategory;
+            return `<div onclick="setDeepCategory('${esc(cat.name)}')" style="cursor:pointer;display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:11.5px;font-weight:${active ? '600' : '500'};background:${active ? '#15604a' : '#fff'};color:${active ? '#fff' : '#55504a'};border:1px solid ${active ? '#15604a' : '#e7e3da'};white-space:nowrap;transition:all .15s;">${esc(cat.name)}<span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;opacity:0.7;">${cat.count}</span></div>`;
+          }).join('');
+          return `<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 13px;background:#fbfaf6;border:1px solid #f0ece3;border-radius:11px;">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;color:#9a9488;flex:none;">DEPT</span>
+            <div onclick="setDeepCategory(null)" style="cursor:pointer;padding:4px 11px;border-radius:20px;font-size:11.5px;font-weight:${allActive ? '600' : '500'};background:${allActive ? '#1b1a17' : '#fff'};color:${allActive ? '#fff' : '#55504a'};border:1px solid ${allActive ? '#1b1a17' : '#e7e3da'};transition:all .15s;">All</div>
+            ${chips}
+          </div>`;
+        })()}
+
         <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:20px;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;">
-            <div style="font-size:13.5px;font-weight:600;">Top skills in demand</div>
+            <div style="font-size:13.5px;font-weight:600;">Top skills in demand${S.deepCategory ? ` <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:#15604a;background:#e7f0ea;border-radius:6px;padding:2px 7px;">${esc(S.deepCategory)}</span>` : ''}</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">DEMAND</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:13px;">
@@ -435,7 +493,7 @@ async function renderDeepDive() {
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
             ${recsHtml || '<div style="color:#a9a397;font-size:12px;padding:8px 0;">Sync to get personalised recommendations.</div>'}
           </div>
-          <div class="learn-link" onclick="navigate('learn')">See full learning plan →</div>
+          <div class="learn-link" onclick="S.learnFilters={company_id:${c.id},category:${c.active_category ? `'${c.active_category}'` : 'null'}};navigate('learn')">See full learning plan →</div>
         </div>
 
         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;text-align:center;">${syncedLabel}</div>
@@ -579,7 +637,11 @@ function toggleCompare(id) {
 async function renderLearn() {
   setTopbar('Learn Next', 'Prioritised skills to close your gaps');
   setSyncLabel('LOADING…');
-  const data = await api('GET', '/learn');
+  const params = new URLSearchParams();
+  if (S.learnFilters.company_id) params.set('company_id', S.learnFilters.company_id);
+  if (S.learnFilters.category) params.set('category', S.learnFilters.category);
+  const qs = params.toString() ? '?' + params.toString() : '';
+  const data = await api('GET', '/learn' + qs);
   setSyncLabel('READY');
 
   const statsHtml = (data.stats || []).map(s => `
@@ -589,16 +651,27 @@ async function renderLearn() {
     </div>`).join('');
 
   const recsHtml = (data.recs || []).map(r => `
-    <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:20px;display:flex;gap:20px;align-items:center;">
+    <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:20px;display:flex;gap:20px;align-items:flex-start;">
       <div style="width:40px;height:40px;border-radius:11px;background:${r.rank_bg};color:${r.rank_color};display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:17px;flex:none;">${r.rank}</div>
       <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <span style="font-size:15px;font-weight:600;">${esc(r.skill)}</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;color:${r.tag_color};background:${r.tag_bg};border-radius:5px;padding:2px 7px;">${esc(r.tag)}</span>
+          ${!r.in_profile
+            ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#b1493a;background:#f5e5e1;border:1px solid #e8c5bf;border-radius:5px;padding:2px 7px;">NOT IN PROFILE</span>`
+            : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#9a7c33;background:#f7edda;border:1px solid #ecddc0;border-radius:5px;padding:2px 7px;">+${r.gap_pts} PTS NEEDED</span>`}
         </div>
-        <div style="font-size:12px;color:#7a756a;line-height:1.5;">${esc(r.why)}</div>
+        ${r.jobs_requiring && r.jobs_requiring.length ? `
+        <div style="background:#e7f0ea;border:1px solid #cfe2d6;border-radius:9px;padding:9px 12px;margin-bottom:10px;">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.4px;color:#15604a;font-weight:600;display:block;margin-bottom:5px;">WHY IN DEMAND</span>
+          <div style="font-size:12px;color:#1b3a28;line-height:1.55;">${r.jobs_requiring.map(t => esc(t)).join('<span style="color:#8bba9a;margin:0 4px;">·</span>')}</div>
+        </div>` : `<div style="font-size:12px;color:#7a756a;line-height:1.5;margin-bottom:10px;">${esc(r.why)}</div>`}
+        ${r.tip ? `<div style="background:#f7edda;border:1px solid #ecddc0;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.55;color:#5e4d22;">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.4px;color:#9a7c33;font-weight:600;display:block;margin-bottom:4px;">WHAT TO LEARN</span>
+          ${esc(r.tip)}
+        </div>` : ''}
       </div>
-      <div style="width:200px;flex:none;">
+      <div style="width:180px;flex:none;">
         <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;margin-bottom:6px;">
           <span>NOW ${r.level}</span>
           <span style="color:#15604a;">TARGET ${r.target}</span>
@@ -611,18 +684,50 @@ async function renderLearn() {
       </div>
     </div>`).join('');
 
-  const n = S.companies.length || (data.stats && data.stats[0] ? '—' : 0);
+  // Company filter chips
+  const companyChipsHtml = (data.available_companies || []).map(co => {
+    const active = S.learnFilters.company_id === co.id;
+    return `<div onclick="setLearnFilter('company_id', ${co.id})" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:${active ? '600' : '500'};background:${active ? co.color : '#fff'};color:${active ? '#fff' : '#55504a'};border:1px solid ${active ? co.color : '#e7e3da'};white-space:nowrap;transition:all .15s;">
+      ${esc(co.name)}
+    </div>`;
+  }).join('');
+
+  // Category filter chips
+  const catChipsHtml = (data.available_categories || []).map(cat => {
+    const active = S.learnFilters.category === cat;
+    return `<div onclick="setLearnFilter('category', '${esc(cat)}')" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:${active ? '600' : '500'};background:${active ? '#15604a' : '#fff'};color:${active ? '#fff' : '#55504a'};border:1px solid ${active ? '#15604a' : '#e7e3da'};white-space:nowrap;transition:all .15s;">${esc(cat)}</div>`;
+  }).join('');
+
+  const filterBar = `
+    <div style="background:#fbfaf6;border:1px solid #f0ece3;border-radius:14px;padding:14px 16px;margin-bottom:18px;display:flex;flex-direction:column;gap:10px;">
+      ${(data.available_companies || []).length > 1 ? `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.5px;color:#9a9488;width:52px;flex:none;">COMPANY</span>
+        <div onclick="setLearnFilter('company_id', null)" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:${!S.learnFilters.company_id ? '600' : '500'};background:${!S.learnFilters.company_id ? '#1b1a17' : '#fff'};color:${!S.learnFilters.company_id ? '#fff' : '#55504a'};border:1px solid ${!S.learnFilters.company_id ? '#1b1a17' : '#e7e3da'};transition:all .15s;">All</div>
+        ${companyChipsHtml}
+      </div>` : ''}
+      ${(data.available_categories || []).length > 0 ? `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.5px;color:#9a9488;width:52px;flex:none;">DEPT</span>
+        <div onclick="setLearnFilter('category', null)" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:${!S.learnFilters.category ? '600' : '500'};background:${!S.learnFilters.category ? '#1b1a17' : '#fff'};color:${!S.learnFilters.category ? '#fff' : '#55504a'};border:1px solid ${!S.learnFilters.category ? '#1b1a17' : '#e7e3da'};transition:all .15s;">All</div>
+        ${catChipsHtml}
+      </div>` : ''}
+    </div>`;
+
   setHTML('screen', `<div class="anim-in" style="padding:26px 28px 60px;">
     <div style="background:#1b1a17;border-radius:18px;padding:24px 26px;color:#f6f4ef;margin-bottom:22px;">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;">
         <span style="width:22px;height:22px;border-radius:6px;background:#b9791f;display:flex;align-items:center;justify-content:center;font-size:12px;">✦</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.6px;color:#c9a253;">AI ANALYSIS · ACROSS YOUR WATCHLIST</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.6px;color:#c9a253;">AI ANALYSIS · ${S.learnFilters.company_id ? (data.available_companies||[]).find(c=>c.id===S.learnFilters.company_id)?.name?.toUpperCase() || 'COMPANY' : 'ACROSS YOUR WATCHLIST'}</span>
       </div>
       <div style="font-size:19px;font-weight:600;line-height:1.45;letter-spacing:-0.2px;max-width:760px;">${esc(data.headline)}</div>
       <div style="display:flex;gap:28px;margin-top:20px;">${statsHtml}</div>
     </div>
 
-    <div style="font-size:13px;font-weight:600;margin-bottom:13px;">Recommended focus — ranked by impact across your watchlist</div>
+    ${filterBar}
+
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px;">All skill gaps — ranked by impact</div>
+    <div style="font-size:12px;color:#7a756a;margin-bottom:16px;">Every skill that appears in matching job postings but is missing or underdeveloped in your profile.</div>
 
     <div style="display:flex;flex-direction:column;gap:14px;">
       ${recsHtml || '<div style="padding:40px;text-align:center;color:#9a9488;">Add and sync companies to get personalised recommendations.</div>'}
@@ -678,6 +783,26 @@ async function renderProfile() {
   const aiSummary = p.skills.length
     ? `You have ${p.skill_count} tracked skills. Your strongest areas are ${p.skills.slice(0,3).map(s=>s.name).join(', ')}. Keep growing and sync companies to see where you stand.`
     : 'Add your skills to start getting personalised fit scores and recommendations.';
+
+  const FOCUS_CATEGORIES = [
+    'Data & ML', 'Software Engineering', 'Product', 'Design',
+    'Operations', 'Finance', 'Marketing & Growth', 'People & HR',
+  ];
+  const currentFocus = p.target_role || '';
+  const focusChips = FOCUS_CATEGORIES.map(cat => {
+    const active = cat === currentFocus;
+    return `<div onclick="setTargetRole('${esc(cat)}')" style="cursor:pointer;padding:5px 11px;border-radius:20px;font-size:11.5px;font-weight:${active ? '600' : '500'};background:${active ? '#15604a' : '#f0ece3'};color:${active ? '#fff' : '#55504a'};border:1px solid ${active ? '#15604a' : '#e7e3da'};transition:all .15s;">${esc(cat)}</div>`;
+  }).join('');
+  const focusClearLink = currentFocus
+    ? `<span style="font-size:11px;color:#9a9488;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block;" onclick="setTargetRole('')">Clear focus</span>`
+    : '';
+  const focusSection = `
+    <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:18px;">
+      <div style="font-size:13.5px;font-weight:600;margin-bottom:3px;">Career focus</div>
+      <div style="font-size:11.5px;color:#7a756a;margin-bottom:14px;">Fit scores, skill gaps and Learn Next filter to this role type across all companies.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;">${focusChips}</div>
+      ${focusClearLink}
+    </div>`;
 
   setHTML('screen', `<div class="anim-in" style="padding:26px 28px 60px;">
     <div style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start;">
@@ -740,6 +865,8 @@ async function renderProfile() {
           <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.6px;color:#9a7c33;margin-bottom:8px;">✦ AI SUMMARY</div>
           <div style="font-size:13px;line-height:1.55;color:#5e4d22;">${aiSummary}</div>
         </div>
+
+        ${focusSection}
 
         <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:18px;">
           <div style="font-size:13.5px;font-weight:600;margin-bottom:3px;">Resume</div>
@@ -826,6 +953,8 @@ async function handleResume(input) {
     }
     const data = await r.json();
     if (label) label.textContent = data.message || `Added ${data.skills_added} skills`;
+    // Refresh cached stats so overview shows updated avgFit on next visit
+    try { S.stats = await api('GET', '/stats'); } catch (_) {}
     await renderProfile();
   } catch (e) {
     if (label) label.textContent = 'Upload failed: ' + e.message;
@@ -949,9 +1078,16 @@ function _nameFromUrl(url) {
       const p = u.pathname.split('/').filter(Boolean);
       if (p.length) return p[0].split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
     }
-    // careers.company.com, jobs.company.com → company
-    const stripped = host.replace(/^(careers|jobs|apply|work)\./i, '');
-    const domain = stripped.split('.')[0];
+    // Strip common career subdomains (EN + international equivalents)
+    // e.g. careers.zalando.com, jobs.google.com, karriere.miele.de,
+    //      vacatures.ing.com, werkenbij.ah.nl → company name from SLD
+    const stripped = host.replace(
+      /^(careers?|jobs?|apply|work|career|karriere|stellenangebote|vacatures?|emplois?|vacantes?|carriere|werkenbij|joinen|talent|join|recrutement)\./i,
+      ''
+    );
+    const parts = stripped.split('.');
+    // For country-code TLDs (e.g. miele.de) take the SLD, not the TLD
+    const domain = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
     return domain.charAt(0).toUpperCase() + domain.slice(1);
   } catch { return ''; }
 }
@@ -1607,6 +1743,15 @@ async function saveNote(appId) {
   } catch (e) {
     console.warn('Note save failed:', e.message);
   }
+}
+
+// ── CAREER FOCUS ─────────────────────────────────────────────────────────────
+async function setTargetRole(role) {
+  await api('PUT', '/profile', { target_role: role });
+  S.profile.target_role = role;
+  S.stats = await api('GET', '/stats');
+  renderProfileFooter();
+  await renderProfile();
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
