@@ -221,14 +221,25 @@ Font mono:          IBM Plex Mono  (numbers, badges, labels)
 
 ---
 
-## What's Next (Roadmap)
+## What's Next (Roadmap — v1.0)
 
-- [ ] Email / Slack alerts when new roles match above a threshold fit score
-- [ ] Multi-country Adzuna support (currently DE-focused)
-- [ ] Scheduled auto-sync (weekly cron per company)
-- [ ] Export fit report as PDF
-- [ ] Browser extension — ATS score any job posting in one click
-- [ ] Role-specific tailoring presets saved per company
+**Resume export**
+The Tailor feature currently generates resume bullets and cover letter text you can copy. Next version: export a fully formatted, ready-to-send PDF/DOCX directly from the app.
+
+**Deeper Learn Next explanations**
+The WHY IN DEMAND section currently shows job titles that need each skill. Next: a richer AI explanation per skill — what specifically is expected, which technologies or tools it relates to, and a concrete learning path.
+
+**Full profile built from resume**
+Profile currently extracts keywords only. Next: upload your resume and populate everything — name, summary, work experience, education, hobbies, certifications. The full picture, not just skills.
+
+**Per-company resume versions**
+If you track 5 companies, store 5 tailored versions of your resume — one per company. A toggle (like the company switcher in Deep Dive) lets you flip between them. Each version has its own tailored skills section, summary, and bullet points optimised for that company's job requirements.
+
+**Master profile**
+A general, untailored base version of your resume that acts as the source for all company-specific versions. Edit the master → changes propagate. Override per company where needed.
+
+**Projects section redesign**
+The current GitHub integration is functional but surface-level. Next: a more meaningful view — project-to-role alignment, skill gap per project, and AI suggestions that are actually actionable.
 
 ---
 
