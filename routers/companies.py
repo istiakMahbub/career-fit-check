@@ -615,14 +615,10 @@ def get_company(company_id: int, category: Optional[str] = None):
         skills_in_demand = [
             {
                 "name": d["name"],
-                "w": d["demand_pct"],          # bar width = mentions / total jobs %
                 "demand_pct": d["demand_pct"],
-                "fill": color,
                 "you_have": d["you_have"],
-                "trend": "—",
-                "trend_color": "#9a9488",
             }
-            for d in demand[:10]
+            for d in demand  # all skills, no cap
         ]
 
         # Open roles with per-role match %

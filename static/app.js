@@ -290,21 +290,18 @@ async function renderDeepDive() {
       <div style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#bcb6aa;">${esc(b.wk)}</div>
     </div>`).join('');
 
-  // Skills in demand
+  // Skills in demand — chip cloud, green = have it, red = missing
   const skillsHtml = (c.skills || []).map(k => {
-    const dot = k.you_have
-      ? '<span title="In your profile" style="width:6px;height:6px;border-radius:50%;background:#15604a;flex:none;"></span>'
-      : '';
-    return `<div style="display:flex;align-items:center;gap:13px;">
-      <div style="width:104px;flex:none;font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:7px;">
-        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(k.name)}</span>${dot}
-      </div>
-      <div style="flex:1;height:9px;background:#f0ece3;border-radius:6px;overflow:hidden;">
-        <div style="height:100%;border-radius:6px;background:${c.color};width:${k.w}%;"></div>
-      </div>
-      <div style="width:54px;flex:none;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#9a9488;">${k.demand_pct != null ? k.demand_pct + '%' : '—'}</div>
+    const bg    = k.you_have ? '#e7f0ea' : '#f5e5e1';
+    const border = k.you_have ? '#cfe2d6' : '#f0cbc5';
+    const color  = k.you_have ? '#15604a' : '#b1493a';
+    const icon   = k.you_have ? '✓' : '✗';
+    return `<div title="in ${k.demand_pct}% of jobs" style="display:inline-flex;align-items:center;gap:5px;background:${bg};border:1px solid ${border};border-radius:20px;padding:4px 10px;cursor:default;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:${color};">${icon}</span>
+      <span style="font-size:12px;font-weight:500;color:${color};">${esc(k.name)}</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:${color};opacity:0.65;">${k.demand_pct}%</span>
     </div>`;
-  }).join('');
+  }).join(' ');
 
   // Open roles — show category badge, dim jobs outside focus
   const rolesHtml = (c.roles || []).map(r => {
@@ -434,11 +431,14 @@ async function renderDeepDive() {
         })()}
 
         <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:20px;">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;">
-            <div style="font-size:13.5px;font-weight:600;">Top skills in demand${S.deepCategory ? ` <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:#15604a;background:#e7f0ea;border-radius:6px;padding:2px 7px;">${esc(S.deepCategory)}</span>` : ''}</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">% OF JOBS</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;">
+            <div style="font-size:13.5px;font-weight:600;">Skills in demand${S.deepCategory ? ` <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:#15604a;background:#e7f0ea;border-radius:6px;padding:2px 7px;">${esc(S.deepCategory)}</span>` : ''}</div>
+            <div style="display:flex;align-items:center;gap:10px;flex:none;">
+              <span style="display:flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#15604a;"><span style="font-weight:700;">✓</span>IN PROFILE</span>
+              <span style="display:flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#b1493a;"><span style="font-weight:700;">✗</span>MISSING</span>
+            </div>
           </div>
-          <div style="display:flex;flex-direction:column;gap:13px;">
+          <div style="display:flex;flex-wrap:wrap;gap:7px;">
             ${skillsHtml || '<div style="color:#9a9488;font-size:12px;">Sync to load skill data.</div>'}
           </div>
         </div>
