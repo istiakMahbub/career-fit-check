@@ -678,27 +678,18 @@ def get_company(company_id: int, category: Optional[str] = None):
         C = 2 * math.pi * 52
         ring = {"circ": round(C, 1), "offset": round(C * (1 - fit / 100), 1)}
 
-        # What to learn next (per company, top 3 gaps)
+        # What to learn next (per company, top 3 missing keywords ranked by impact)
         recs = []
-        for d in sorted(demand, key=lambda x: -(x["req_level"] - x["my_level"]) * x["count"])[:5]:
-            gap_size = d["req_level"] - d["my_level"]
-            if gap_size <= 4:
-                continue
-            # Estimate fit gain
-            boosted = [
-                {**s, "level": d["req_level"]} if s["name"].lower() == d["name"].lower() else s
-                for s in user_skills
-            ]
-            if not any(s["name"].lower() == d["name"].lower() for s in user_skills):
-                boosted = user_skills + [{"name": d["name"], "level": d["req_level"]}]
+        for d in sorted(demand, key=lambda x: -x["count"] * (1 - x["you_have"])):
+            if d["you_have"]:
+                continue  # only show skills not yet in profile
+            boosted = user_skills + [{"name": d["name"], "level": 60}]
             gain = max(1, calculate_company_fit(boosted, all_job_skills) - fit)
             recs.append(
                 {
                     "skill": d["name"],
                     "gain": gain,
-                    "level_w": min(100, d["my_level"]),
-                    "target_w": min(100, d["req_level"]),
-                    "detail": f"now {d['my_level']} → target {d['req_level']}",
+                    "demand_pct": d["demand_pct"],
                 }
             )
             if len(recs) == 3:

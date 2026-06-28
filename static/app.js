@@ -355,18 +355,17 @@ async function renderDeepDive() {
       <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#9a9488;margin-top:3px;">in ${b.demand_pct}% of jobs</div>
     </div>`).join('');
 
-  // Recs
+  // Recs — missing keyword cards with + Add to profile
   const recsHtml = (c.recs || []).map(r => `
     <div style="background:#262420;border:1px solid #34312b;border-radius:11px;padding:13px 14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:13px;font-weight:600;">${esc(r.skill)}</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:#e0b15f;">+${r.gain}% FIT</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+        <span style="font-size:13px;font-weight:600;color:#f3efe7;">${esc(r.skill)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:#e0b15f;flex:none;">+${r.gain}% FIT</span>
       </div>
-      <div style="position:relative;height:6px;background:#3a352d;border-radius:6px;margin:10px 0 8px;overflow:visible;">
-        <div style="height:100%;border-radius:6px;background:#b9791f;width:${r.level_w}%;"></div>
-        <div style="position:absolute;top:-2px;width:2px;height:10px;background:#f6f4ef;border-radius:2px;left:${r.target_w}%;"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a9a397;">in ${r.demand_pct}% of ${esc(c.name)} jobs</span>
+        <button onclick="addSkillFromRec('${esc(r.skill)}', this)" style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;background:#15604a;color:#fff;border:1px solid #1a7a5e;border-radius:8px;padding:5px 11px;cursor:pointer;white-space:nowrap;transition:all .2s;">+ Add to profile</button>
       </div>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a9a397;">${esc(r.detail)}</div>
     </div>`).join('');
 
   const syncedLabel = c.last_synced
@@ -960,6 +959,18 @@ async function addNewSkill() {
 async function addSuggestedSkill(name) {
   await api('POST', '/profile/skill', { name, level: 50 });
   await renderProfile();
+}
+
+async function addSkillFromRec(name, btn) {
+  btn.disabled = true;
+  btn.textContent = '✓ Added';
+  btn.style.background = '#e7f0ea';
+  btn.style.color = '#15604a';
+  btn.style.borderColor = '#cfe2d6';
+  await api('POST', '/profile/skill', { name, level: 50 });
+  // Refresh profile state silently, then re-render deep dive so fit updates
+  S.profile = await api('GET', '/profile');
+  await renderDeepDive();
 }
 
 async function adjustSkill(name, delta) {
