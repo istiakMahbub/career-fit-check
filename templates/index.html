@@ -70,6 +70,21 @@
   </div>
 </div>
 
+<!-- ATS SCORE OVERLAY -->
+<div id="ats-overlay" class="overlay-backdrop" style="display:none;">
+  <div style="width:700px;max-width:100%;max-height:92vh;background:#f6f4ef;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);">
+    <div style="flex:none;background:#fff;border-bottom:1px solid #e7e3da;padding:16px 20px;display:flex;align-items:center;gap:12px;">
+      <div style="flex:1;min-width:0;">
+        <div id="ats-title" style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.5px;color:#9a9488;margin-top:3px;">ATS KEYWORD MATCH ANALYSIS</div>
+      </div>
+      <div id="ats-score-badge" style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;flex:none;"></div>
+      <div class="close-btn" id="ats-close">✕</div>
+    </div>
+    <div id="ats-body" style="flex:1;overflow-y:auto;padding:24px;"></div>
+  </div>
+</div>
+
 <!-- TAILOR OVERLAY -->
 <div id="tailor-overlay" class="overlay-backdrop" style="display:none;">
   <div style="width:780px;max-width:100%;max-height:92vh;background:#f6f4ef;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);">

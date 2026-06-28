@@ -333,6 +333,9 @@ async function renderDeepDive() {
         <div id="save-btn-${r.id}" class="tailor-btn" onclick="saveJob(${r.id}, this)" title="Save to applications"${savedJobIds.has(r.id) ? ' style="color:#15604a;pointer-events:none;"' : ''}>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">${savedJobIds.has(r.id) ? '✓' : '♡'}</span> ${savedJobIds.has(r.id) ? 'Saved' : 'Save'}
         </div>
+        <div class="tailor-btn" onclick="openATS(${r.id},'${esc(r.title)}')" title="Score your resume against this job's ATS keywords">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">⊕</span> ATS
+        </div>
         <div class="tailor-btn" onclick="openTailor(${r.id},'${esc(r.title)}','${esc(c.name)}')">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;">✎</span> Tailor
         </div>
@@ -751,25 +754,14 @@ async function renderProfile() {
     `<div class="suggest-chip" onclick="addSuggestedSkill('${esc(s)}')">+ ${esc(s)}</div>`
   ).join('');
 
-  const skillsHtml = p.skills.map(s => {
-    const col = fitColor(s.level);
-    return `<div style="display:flex;align-items:center;gap:11px;">
-      <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
-          <span style="font-size:12.5px;font-weight:500;">${esc(s.name)}</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:${col};">${s.level}</span>
-        </div>
-        <div style="height:7px;background:#f0ece3;border-radius:6px;overflow:hidden;">
-          <div style="height:100%;border-radius:6px;background:${col};width:${s.level}%;"></div>
-        </div>
-      </div>
-      <div style="display:flex;gap:4px;flex:none;">
-        <div class="icon-btn" onclick="adjustSkill('${esc(s.name)}',-10)">−</div>
-        <div class="icon-btn" onclick="adjustSkill('${esc(s.name)}',10)">+</div>
-        <div class="icon-btn danger" title="Remove skill" onclick="deleteSkill('${esc(s.name)}')">✕</div>
-      </div>
-    </div>`;
-  }).join('');
+  const skillsHtml = `<div style="display:flex;flex-wrap:wrap;gap:8px;">${
+    p.skills.map(s =>
+      `<div style="display:inline-flex;align-items:center;gap:7px;background:#f3efe7;border:1px solid #e7e3da;border-radius:20px;padding:5px 8px 5px 13px;">
+        <span style="font-size:12.5px;font-weight:500;">${esc(s.name)}</span>
+        <div class="icon-btn danger" title="Remove" onclick="deleteSkill('${esc(s.name)}')" style="width:18px;height:18px;font-size:11px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;margin:0;">✕</div>
+      </div>`
+    ).join('')
+  }</div>`;
 
   const resumeSection = `
     <label class="resume-drop" for="resume-file">
@@ -810,9 +802,9 @@ async function renderProfile() {
       <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:22px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;">
           <div style="font-size:14px;font-weight:600;">Your skills</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">TAP − / + TO ADJUST</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">${p.skill_count} KEYWORDS</div>
         </div>
-        <div style="font-size:12px;color:#7a756a;margin-bottom:16px;">Add or remove skills — every change recomputes fit, gaps and recommendations.</div>
+        <div style="font-size:12px;color:#7a756a;margin-bottom:16px;">Skills are matched as keywords against job postings — exactly how ATS systems work. Add a skill and it counts.</div>
 
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <input id="skill-input" class="skill-input" placeholder="Add a skill — e.g. Databricks, R, Terraform" onkeydown="if(event.key==='Enter')addNewSkill()"/>
@@ -824,8 +816,8 @@ async function renderProfile() {
           ${suggestHtml}
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 28px;">
-          ${skillsHtml || '<div style="grid-column:1/-1;color:#9a9488;font-size:12px;padding:10px 0;">No skills yet. Add one above.</div>'}
+        <div style="margin-top:4px;">
+          ${skillsHtml || '<div style="color:#9a9488;font-size:12px;padding:10px 0;">No skills yet. Add one above.</div>'}
         </div>
       </div>
 
@@ -1166,6 +1158,111 @@ const T = {
   loading: false,
 };
 
+// ── ATS SCORER ────────────────────────────────────────────────────────────────
+const ATS = { jobId: null, loading: false, data: null };
+
+function openATS(jobId, title) {
+  ATS.jobId = jobId;
+  ATS.loading = false;
+  ATS.data = null;
+  document.getElementById('ats-title').textContent = title;
+  setHTML('ats-score-badge', '');
+  document.getElementById('ats-overlay').style.display = 'flex';
+  _renderATSBody();
+}
+
+function _closeATS() {
+  document.getElementById('ats-overlay').style.display = 'none';
+}
+
+function _renderATSBody() {
+  if (ATS.loading) {
+    setHTML('ats-body', `
+      <div style="padding:48px;text-align:center;">
+        <div class="spinner" style="margin:0 auto 16px;"></div>
+        <div style="font-size:13.5px;font-weight:600;">Analysing resume keywords…</div>
+        <div style="font-size:12px;color:#7a756a;margin-top:6px;">Extracting keywords from your resume and matching against the job.</div>
+      </div>`);
+    return;
+  }
+
+  if (!ATS.data) {
+    setHTML('ats-body', `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:5px;">Paste your resume text</div>
+        <div style="font-size:12px;color:#7a756a;margin-bottom:12px;">Copy all the text from your resume and paste it below. We'll extract keywords and check which ones the ATS would find — and which are missing.</div>
+        <textarea id="ats-resume-text" style="width:100%;min-height:180px;border:1px solid #e7e3da;border-radius:12px;padding:14px;font-size:12.5px;font-family:'IBM Plex Sans',sans-serif;background:#fff;resize:vertical;box-sizing:border-box;outline:none;line-height:1.5;" placeholder="Paste your resume here…"></textarea>
+      </div>
+      <button class="btn-primary" onclick="_runATSScore()" style="width:100%;padding:12px;">Analyse ATS Score →</button>`);
+    return;
+  }
+
+  if (ATS.data.error) {
+    setHTML('ats-body', `<div style="padding:24px;text-align:center;color:#b1493a;">${esc(ATS.data.error)}<br><br><button class="btn-back" onclick="ATS.data=null;_renderATSBody();">← Try again</button></div>`);
+    return;
+  }
+
+  const d = ATS.data;
+  const scoreColor = d.score >= 70 ? '#15604a' : d.score >= 45 ? '#b9791f' : '#b1493a';
+  const scoreBg   = d.score >= 70 ? '#e7f0ea' : d.score >= 45 ? '#f7edda' : '#f5e5e1';
+  const scoreMsg  = d.score >= 70 ? 'Strong ATS match — your resume is well-aligned.' : d.score >= 45 ? 'Partial match — adding the missing keywords will significantly boost your score.' : 'Weak match — the resume needs keyword alignment before applying.';
+
+  const chipGreen = s => `<span style="display:inline-flex;align-items:center;gap:4px;background:#e7f0ea;border:1px solid #cfe2d6;border-radius:20px;padding:3px 11px;font-size:11.5px;color:#15604a;font-weight:500;"><span>✓</span>${esc(s)}</span>`;
+  const chipRed   = s => `<span style="display:inline-flex;align-items:center;gap:4px;background:#f5e5e1;border:1px solid #e8c5bf;border-radius:20px;padding:3px 11px;font-size:11.5px;color:#b1493a;font-weight:500;"><span>✗</span>${esc(s)}</span>`;
+  const chipAmber = s => `<span style="display:inline-flex;align-items:center;gap:4px;background:#f7edda;border:1px solid #ecddc0;border-radius:20px;padding:3px 11px;font-size:11.5px;color:#9a7c33;font-weight:500;"><span>~</span>${esc(s)}</span>`;
+
+  const missingBlock = d.required_missing.length ? `
+    <div style="background:#f5e5e1;border:1px solid #e8c5bf;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;color:#b1493a;font-weight:600;margin-bottom:10px;">ADD THESE EXACT KEYWORDS TO YOUR RESUME</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;">${d.required_missing.map(s => `<span style="background:#fff;border:1px solid #e8c5bf;border-radius:7px;padding:4px 10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#b1493a;">${esc(s)}</span>`).join('')}</div>
+    </div>` : `<div style="background:#e7f0ea;border:1px solid #cfe2d6;border-radius:12px;padding:14px;margin-bottom:16px;font-size:12.5px;color:#15604a;font-weight:500;">✓ All required keywords found in your resume.</div>`;
+
+  setHTML('ats-score-badge', `<span style="color:${scoreColor};">${d.score}%</span>`);
+
+  setHTML('ats-body', `
+    <div style="display:flex;align-items:center;gap:20px;background:${scoreBg};border-radius:14px;padding:20px 22px;margin-bottom:20px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:54px;font-weight:700;color:${scoreColor};line-height:1;flex:none;">${d.score}%</div>
+      <div>
+        <div style="font-size:14.5px;font-weight:600;margin-bottom:5px;">${scoreMsg}</div>
+        <div style="font-size:12px;color:#55504a;">Your resume contains <strong>${d.required_matched.length}/${d.total_required}</strong> required keywords${d.total_preferred ? ` and <strong>${d.preferred_matched.length}/${d.total_preferred}</strong> preferred keywords` : ''}. ${d.resume_keywords_detected} total keywords detected in the resume.</div>
+      </div>
+    </div>
+
+    ${missingBlock}
+
+    ${d.required_matched.length || d.required_missing.length ? `
+    <div style="margin-bottom:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;color:#9a9488;font-weight:600;margin-bottom:9px;">REQUIRED KEYWORDS — ${d.required_matched.length} of ${d.total_required} matched</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${[...d.required_matched.map(chipGreen), ...d.required_missing.map(chipRed)].join(' ')}</div>
+    </div>` : ''}
+
+    ${d.preferred_matched.length || d.preferred_missing.length ? `
+    <div style="margin-bottom:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;color:#9a9488;font-weight:600;margin-bottom:9px;">PREFERRED KEYWORDS — ${d.preferred_matched.length} of ${d.total_preferred} matched</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${[...d.preferred_matched.map(chipGreen), ...d.preferred_missing.map(chipAmber)].join(' ')}</div>
+    </div>` : ''}
+
+    <div style="text-align:center;margin-top:8px;">
+      <button class="btn-back" onclick="ATS.data=null;_renderATSBody();">← Score a different resume</button>
+    </div>`);
+}
+
+async function _runATSScore() {
+  const resumeText = (document.getElementById('ats-resume-text')?.value || '').trim();
+  if (!resumeText) { alert('Please paste your resume text first.'); return; }
+  ATS.loading = true;
+  _renderATSBody();
+  try {
+    ATS.data = await api('POST', '/ats-score', { job_id: ATS.jobId, resume_text: resumeText });
+  } catch (e) {
+    ATS.data = { error: e.message };
+  } finally {
+    ATS.loading = false;
+    _renderATSBody();
+  }
+}
+
+// ── TAILOR ────────────────────────────────────────────────────────────────────
 function openTailor(jobId, title, company) {
   T.jobId = jobId;
   T.tone = 'Professional';
@@ -1760,6 +1857,7 @@ async function init() {
   document.getElementById('add-btn').onclick = openAddOverlay;
   document.getElementById('add-close').onclick = closeAddOverlay;
   document.getElementById('tailor-close').onclick = _closeTailor;
+  document.getElementById('ats-close').onclick = _closeATS;
 
   // Close overlays on backdrop click
   document.getElementById('add-overlay').onclick = e => {
@@ -1767,6 +1865,9 @@ async function init() {
   };
   document.getElementById('tailor-overlay').onclick = e => {
     if (e.target === e.currentTarget) _closeTailor();
+  };
+  document.getElementById('ats-overlay').onclick = e => {
+    if (e.target === e.currentTarget) _closeATS();
   };
 
   // Load initial profile for footer

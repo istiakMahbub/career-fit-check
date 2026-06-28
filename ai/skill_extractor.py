@@ -81,11 +81,15 @@ def _get_gemini_client():
 
 # ── Ollama backend ────────────────────────────────────────────────────────────
 
-_OLLAMA_PROMPT = """Extract required technical skills from this job posting and classify it.
+_OLLAMA_PROMPT = """Analyse this job posting. Extract technical skills split into required and preferred, then classify the role.
 
-Return a JSON object with exactly two keys:
-- "skills": array of required technical skill name strings (infer from job title if description is absent)
+Return a JSON object with exactly three keys:
+- "required": array of MUST-HAVE technical skill strings (explicitly essential, core to the role, or stated as requirements)
+- "preferred": array of NICE-TO-HAVE skill strings (desired, bonus, or mentioned but not mandatory)
 - "category": exactly one of {categories}
+
+If the description doesn't distinguish, put all technical skills under "required" and leave "preferred" empty.
+Infer skills from the job title if the description is absent.
 
 Job posting:
 {text}"""
@@ -100,9 +104,10 @@ def _local_ai_available() -> bool:
         return False
 
 
-def _extract_one_local(job_text: str) -> tuple[list[str], str]:
+def _extract_one_local(job_text: str) -> tuple[list[str], list[str], str]:
     """
     Call the local AI server via the OpenAI-compatible chat completions endpoint.
+    Returns (required_skills, preferred_skills, category).
     Works with both Ollama (:11434) and LM Studio (:1234).
     """
     prompt = _OLLAMA_PROMPT.format(
@@ -124,27 +129,29 @@ def _extract_one_local(job_text: str) -> tuple[list[str], str]:
         raw = r.json()["choices"][0]["message"]["content"]
     except Exception as e:
         log.warning("Local AI extraction error: %s", e)
-        return [], "Other"
+        return [], [], "Other"
 
     try:
         obj = json.loads(raw)
     except json.JSONDecodeError:
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
-            return [], "Other"
+            return [], [], "Other"
         try:
             obj = json.loads(m.group(0))
         except Exception:
-            return [], "Other"
+            return [], [], "Other"
 
-    skills = _parse_skills(json.dumps(obj.get("skills", [])))
+    # Support both new {required, preferred} format and old {skills} format
+    required = _parse_skills(json.dumps(obj.get("required", obj.get("skills", []))))
+    preferred = _parse_skills(json.dumps(obj.get("preferred", [])))
     cat = obj.get("category", "Other")
     if cat not in JOB_CATEGORIES:
         cat = "Other"
-    return skills, cat
+    return required, preferred, cat
 
 
-def _extract_batch_local(job_texts: list[str]) -> list[tuple[list[str], str]]:
+def _extract_batch_local(job_texts: list[str]) -> list[tuple[list[str], list[str], str]]:
     """Run local AI extraction per job. No quota — per-job calls are fine."""
     return [_extract_one_local(text) for text in job_texts]
 
@@ -152,28 +159,31 @@ def _extract_batch_local(job_texts: list[str]) -> list[tuple[list[str], str]]:
 # ── Gemini backend ────────────────────────────────────────────────────────────
 
 _GEMINI_BATCH_PROMPT = (
-    "Analyse these {n} job postings. For each, extract required technical skills "
+    "Analyse these {n} job postings. For each, extract required vs preferred technical skills "
     "and assign a category.\n"
     "Return a JSON array with EXACTLY {n} objects (one per job, same order as input):\n"
-    '[{{"skills": ["skill1", "skill2"], "category": "Data & ML"}}, ...]\n\n'
+    '[{{"required": ["skill1", "skill2"], "preferred": ["skill3"], "category": "Data & ML"}}, ...]\n\n'
     "Categories: {categories}\n"
+    "- 'required': must-have skills, explicitly stated as essential or core to the role\n"
+    "- 'preferred': nice-to-have, desired but not mandatory; leave empty [] if unclear\n"
     "Infer skills from the job title even if the description is absent.\n"
     "Return ONLY the JSON array. No explanation, no markdown.\n\n"
     "{jobs_block}"
 )
 
 _GEMINI_SINGLE_PROMPT = (
-    "Analyse this job posting and return a single JSON object with two keys:\n"
-    '- "skills": array of required technical skill strings (infer from title if description is brief)\n'
+    "Analyse this job posting and return a single JSON object with three keys:\n"
+    '- "required": array of MUST-HAVE technical skill strings\n'
+    '- "preferred": array of NICE-TO-HAVE technical skill strings (empty [] if none)\n'
     '- "category": one of {categories}\n\n'
     "Return ONLY the JSON object. No explanation, no markdown.\n\n"
     "Job posting:\n{text}"
 )
 
 
-def _extract_batch_gemini(job_texts: list[str]) -> list[tuple[list[str], str]]:
+def _extract_batch_gemini(job_texts: list[str]) -> list[tuple[list[str], list[str], str]]:
     """Send all jobs in ONE Gemini call to conserve daily quota."""
-    fallback: list[tuple[list[str], str]] = [([], "Other")] * len(job_texts)
+    fallback: list[tuple[list[str], list[str], str]] = [([], [], "Other")] * len(job_texts)
 
     jobs_block = "\n\n".join(
         f"[JOB {i + 1}]\n{text[:1500]}"
@@ -220,19 +230,21 @@ def _extract_batch_gemini(job_texts: list[str]) -> list[tuple[list[str], str]]:
     if not isinstance(arr, list):
         return fallback
 
-    results: list[tuple[list[str], str]] = []
+    results: list[tuple[list[str], list[str], str]] = []
     for item in arr:
         if not isinstance(item, dict):
-            results.append(([], "Other"))
+            results.append(([], [], "Other"))
             continue
-        skills = _parse_skills(json.dumps(item.get("skills", [])))
+        # Support both new {required, preferred} format and old {skills} format
+        required = _parse_skills(json.dumps(item.get("required", item.get("skills", []))))
+        preferred = _parse_skills(json.dumps(item.get("preferred", [])))
         cat = item.get("category", "Other")
         if cat not in JOB_CATEGORIES:
             cat = "Other"
-        results.append((skills, cat))
+        results.append((required, preferred, cat))
 
     while len(results) < len(job_texts):
-        results.append(([], "Other"))
+        results.append(([], [], "Other"))
     return results[: len(job_texts)]
 
 
@@ -241,11 +253,12 @@ def _extract_batch_gemini(job_texts: list[str]) -> list[tuple[list[str], str]]:
 def extract_skills_batch(
     job_texts: list[str],
     model: str = GEMINI_MODEL_DEFAULT,
-) -> list[tuple[list[str], str]]:
+) -> list[tuple[list[str], list[str], str]]:
     """
-    Extract skills and categories for a list of job texts.
+    Extract required skills, preferred skills, and category for each job text.
+    Returns list of (required_skills, preferred_skills, category) tuples.
 
-    Uses Ollama (local, unlimited) when LOCAL_MODEL_NAME is set in .env.
+    Uses local AI (Ollama/LM Studio) when LOCAL_MODEL_NAME is set in .env.
     Falls back to Gemini batch API (1 call for all jobs) otherwise.
     Raises GeminiRateLimitError if Gemini quota is exhausted.
     """
@@ -261,10 +274,10 @@ def extract_skills_batch(
 
 def extract_skills_and_category(
     text: str, model: str = GEMINI_MODEL_DEFAULT
-) -> tuple[list[str], str]:
-    """Single-job extraction. Uses Ollama if configured, else Gemini."""
+) -> tuple[list[str], list[str], str]:
+    """Single-job extraction. Returns (required_skills, preferred_skills, category)."""
     if not text or not text.strip():
-        return [], "Other"
+        return [], [], "Other"
 
     if LOCAL_MODEL_NAME:
         return _extract_one_local(text)
@@ -280,22 +293,23 @@ def extract_skills_and_category(
         raw = response.text
     except Exception as e:
         log.error("Gemini single extraction error: %s", e)
-        return [], "Other"
+        return [], [], "Other"
 
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.MULTILINE).strip()
     m = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not m:
-        return [], "Other"
+        return [], [], "Other"
     try:
         obj = json.loads(m.group(0))
     except json.JSONDecodeError:
-        return [], "Other"
+        return [], [], "Other"
 
-    skills = _parse_skills(json.dumps(obj.get("skills", [])))
+    required = _parse_skills(json.dumps(obj.get("required", obj.get("skills", []))))
+    preferred = _parse_skills(json.dumps(obj.get("preferred", [])))
     cat = obj.get("category", "Other")
     if cat not in JOB_CATEGORIES:
         cat = "Other"
-    return skills, cat
+    return required, preferred, cat
 
 
 def extract_skills(description: str, model: str = GEMINI_MODEL_DEFAULT) -> list[str]:
@@ -304,8 +318,8 @@ def extract_skills(description: str, model: str = GEMINI_MODEL_DEFAULT) -> list[
         return []
 
     if LOCAL_MODEL_NAME:
-        skills, _ = _extract_one_local(description)
-        return skills
+        required, preferred, _ = _extract_one_local(description)
+        return required + preferred
 
     client = _get_gemini_client()
     prompt = (

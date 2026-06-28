@@ -51,6 +51,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             updated_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (company_id, category, skill)
         )""",
+        "ALTER TABLE job_skills ADD COLUMN required INTEGER DEFAULT 1",
     ]
     for sql in migrations:
         try:

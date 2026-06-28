@@ -493,6 +493,75 @@ def learn(
         }
 
 
+# ── POST /api/ats-score ───────────────────────────────────────────────────────
+
+class ATSScoreRequest(BaseModel):
+    job_id: int
+    resume_text: str
+
+
+@app.post("/api/ats-score")
+def ats_score(payload: ATSScoreRequest):
+    """
+    Score a resume against a specific job's extracted keywords.
+    Returns score % + matched/missing breakdown by required vs preferred.
+    required skills are weighted 2× in the score (mirrors real ATS weighting).
+    """
+    if not payload.resume_text.strip():
+        raise HTTPException(status_code=400, detail="resume_text is required")
+
+    with get_db() as conn:
+        job = conn.execute(
+            "SELECT title FROM jobs WHERE id = ?", (payload.job_id,)
+        ).fetchone()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        skill_rows = conn.execute(
+            "SELECT skill, required FROM job_skills WHERE job_id = ?",
+            (payload.job_id,),
+        ).fetchall()
+
+    if not skill_rows:
+        return {
+            "score": 0,
+            "required_matched": [], "required_missing": [],
+            "preferred_matched": [], "preferred_missing": [],
+            "total_required": 0, "total_preferred": 0,
+            "resume_keywords_detected": 0,
+            "warning": "No skills extracted for this job yet — sync the company first.",
+        }
+
+    required_skills = [r["skill"] for r in skill_rows if r["required"] == 1]
+    preferred_skills = [r["skill"] for r in skill_rows if r["required"] == 0]
+
+    # Extract keywords present in the resume text
+    from ai.skill_extractor import extract_skills
+    resume_kw_list = extract_skills(payload.resume_text[:8000])
+    resume_kw = {k.lower() for k in resume_kw_list}
+
+    req_matched = [s for s in required_skills if s.lower() in resume_kw]
+    req_missing = [s for s in required_skills if s.lower() not in resume_kw]
+    pref_matched = [s for s in preferred_skills if s.lower() in resume_kw]
+    pref_missing = [s for s in preferred_skills if s.lower() not in resume_kw]
+
+    # ATS score: required 2×, preferred 1×
+    total_weight = len(required_skills) * 2 + len(preferred_skills)
+    matched_weight = len(req_matched) * 2 + len(pref_matched)
+    score = round((matched_weight / total_weight) * 100) if total_weight > 0 else 0
+
+    return {
+        "score": score,
+        "required_matched": sorted(req_matched),
+        "required_missing": sorted(req_missing),
+        "preferred_matched": sorted(pref_matched),
+        "preferred_missing": sorted(pref_missing),
+        "total_required": len(required_skills),
+        "total_preferred": len(preferred_skills),
+        "resume_keywords_detected": len(resume_kw),
+    }
+
+
 # ── POST /api/tailor ──────────────────────────────────────────────────────────
 
 class TailorRequest(BaseModel):

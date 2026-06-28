@@ -426,11 +426,15 @@ def sync_company(company_id: int):
             ]
             try:
                 batch_results = extract_skills_batch(job_texts)
-                for job, (skills, category) in zip(batch, batch_results):
-                    if skills:
+                for job, (required_skills, preferred_skills, category) in zip(batch, batch_results):
+                    if required_skills or preferred_skills:
+                        inserts = (
+                            [(job["id"], s, 1) for s in required_skills]
+                            + [(job["id"], s, 0) for s in preferred_skills]
+                        )
                         conn.executemany(
-                            "INSERT INTO job_skills (job_id, skill) VALUES (?, ?)",
-                            [(job["id"], s) for s in skills],
+                            "INSERT INTO job_skills (job_id, skill, required) VALUES (?, ?, ?)",
+                            inserts,
                         )
                         extracted_count += 1
                     conn.execute(

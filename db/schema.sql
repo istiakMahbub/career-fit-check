@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS job_skills (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-    skill TEXT NOT NULL
+    skill TEXT NOT NULL,
+    required INTEGER DEFAULT 1  -- 1 = must-have, 0 = preferred/nice-to-have
 );
 
 CREATE TABLE IF NOT EXISTS hiring_history (
