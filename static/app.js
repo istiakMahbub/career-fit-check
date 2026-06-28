@@ -302,7 +302,7 @@ async function renderDeepDive() {
       <div style="flex:1;height:9px;background:#f0ece3;border-radius:6px;overflow:hidden;">
         <div style="height:100%;border-radius:6px;background:${c.color};width:${k.w}%;"></div>
       </div>
-      <div style="width:54px;flex:none;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#9a9488;">—</div>
+      <div style="width:54px;flex:none;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#9a9488;">${k.demand_pct != null ? k.demand_pct + '%' : '—'}</div>
     </div>`;
   }).join('');
 
@@ -350,12 +350,12 @@ async function renderDeepDive() {
     <div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
         <span style="font-size:12px;font-weight:500;">${esc(b.name)}</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:${b.color};">${esc(b.tag)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;color:${b.color};background:${b.bg};border:1px solid ${b.border};border-radius:8px;padding:2px 7px;">${b.you_have ? '✓ ' : '✗ '}${esc(b.tag)}</span>
       </div>
-      <div style="position:relative;height:7px;background:#f0ece3;border-radius:6px;overflow:visible;">
-        <div style="height:100%;border-radius:6px;background:${b.color};width:${b.my_w}%;"></div>
-        <div title="They want this level" style="position:absolute;top:-2px;width:2px;height:11px;background:#1b1a17;border-radius:2px;left:${b.req_w}%;"></div>
+      <div style="height:6px;background:#f0ece3;border-radius:6px;overflow:hidden;">
+        <div style="height:100%;border-radius:6px;background:${b.bar_color};width:${b.demand_w}%;opacity:${b.you_have ? '1' : '0.45'};"></div>
       </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#9a9488;margin-top:3px;">in ${b.demand_pct}% of jobs</div>
     </div>`).join('');
 
   // Recs
@@ -436,7 +436,7 @@ async function renderDeepDive() {
         <div style="background:#fff;border:1px solid #e7e3da;border-radius:16px;padding:20px;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;">
             <div style="font-size:13.5px;font-weight:600;">Top skills in demand${S.deepCategory ? ` <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:#15604a;background:#e7f0ea;border-radius:6px;padding:2px 7px;">${esc(S.deepCategory)}</span>` : ''}</div>
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">DEMAND</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">% OF JOBS</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:13px;">
             ${skillsHtml || '<div style="color:#9a9488;font-size:12px;">Sync to load skill data.</div>'}
@@ -482,9 +482,10 @@ async function renderDeepDive() {
           <div style="display:flex;flex-direction:column;gap:11px;margin-top:14px;padding-top:16px;border-top:1px solid #f0ece3;">
             ${breakdown || '<div style="color:#9a9488;font-size:12px;">Sync to compute skill breakdown.</div>'}
           </div>
-          <div style="display:flex;align-items:center;gap:14px;margin-top:14px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;">
-            <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:6px;background:#15604a;border-radius:3px;"></span>YOU</span>
-            <span style="display:flex;align-items:center;gap:5px;"><span style="width:2px;height:10px;background:#1b1a17;"></span>THEY ASK</span>
+          <div style="display:flex;align-items:center;gap:14px;margin-top:14px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#9a9488;flex-wrap:wrap;">
+            <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:6px;background:#15604a;border-radius:3px;"></span>YOU HAVE IT</span>
+            <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:6px;background:#b1493a;opacity:0.45;border-radius:3px;"></span>NOT IN PROFILE</span>
+            <span style="margin-left:auto;">BAR = % of jobs mentioning skill</span>
           </div>
         </div>
 

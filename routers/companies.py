@@ -189,7 +189,9 @@ def _skill_demand(company_id: int, conn, user_skills: list[dict], target_categor
             {
                 "name": skill,
                 "count": count,
+                "total": total,
                 "freq": freq,
+                "demand_pct": round(freq * 100),   # mentions / total jobs (0-100)
                 "req_level": req_level,
                 "my_level": my_level,
                 "you_have": my_level > 0,
@@ -613,7 +615,8 @@ def get_company(company_id: int, category: Optional[str] = None):
         skills_in_demand = [
             {
                 "name": d["name"],
-                "w": d["req_level"],
+                "w": d["demand_pct"],          # bar width = mentions / total jobs %
+                "demand_pct": d["demand_pct"],
                 "fill": color,
                 "you_have": d["you_have"],
                 "trend": "—",
@@ -656,21 +659,22 @@ def get_company(company_id: int, category: Optional[str] = None):
         # Skill breakdown (top 7 for fit card)
         breakdown = []
         for d in demand[:7]:
-            my_level, req_level = d["my_level"], d["req_level"]
-            ratio = my_level / req_level if req_level else 1.0
-            if ratio >= 1.0:
-                tag, col = "on target", "#15604a"
-            elif ratio >= 0.6:
-                tag, col = f"+{req_level - my_level} to go", "#b9791f"
-            else:
-                tag, col = f"gap {req_level - my_level}", "#b1493a"
+            you_have = d["you_have"]
+            tag = "you have it" if you_have else "not in profile"
+            col = "#15604a" if you_have else "#b1493a"
+            bg = "#e7f0ea" if you_have else "#f5e5e1"
+            border = "#cfe2d6" if you_have else "#f0cbc5"
             breakdown.append(
                 {
                     "name": d["name"],
                     "color": col,
+                    "bg": bg,
+                    "border": border,
                     "tag": tag,
-                    "my_w": min(100, my_level),
-                    "req_w": min(100, req_level),
+                    "you_have": you_have,
+                    "demand_pct": d["demand_pct"],
+                    "demand_w": d["demand_pct"],  # bar width = demand %
+                    "bar_color": col,
                 }
             )
 
