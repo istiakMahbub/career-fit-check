@@ -122,29 +122,48 @@ def get_stats():
 # ── GET /api/compare ──────────────────────────────────────────────────────────
 
 @app.get("/api/compare")
-def compare(ids: str = ""):
+def compare(ids: str = "", category: Optional[str] = Query(None)):
     """
     Compare skill demand across multiple companies.
-    ?ids=1,2,3
+    ?ids=1,2,3&category=Data+%26+ML   (category optional; defaults to profile target_role)
     """
     if not ids.strip():
-        return {"companies": [], "rows": [], "verdict": "Select companies to compare."}
+        return {"companies": [], "rows": [], "verdict": "Select companies to compare.",
+                "available_categories": [], "active_category": ""}
 
     try:
         company_ids = [int(x) for x in ids.split(",") if x.strip()]
     except ValueError:
-        return {"companies": [], "rows": [], "verdict": "Invalid ids parameter."}
+        return {"companies": [], "rows": [], "verdict": "Invalid ids parameter.",
+                "available_categories": [], "active_category": ""}
 
     with get_db() as conn:
         profile_row = conn.execute(
-            "SELECT skills FROM user_profile WHERE id = 1"
+            "SELECT skills, target_role FROM user_profile WHERE id = 1"
         ).fetchone()
         user_skills = (
             json.loads(profile_row["skills"])
             if profile_row and profile_row["skills"]
             else []
         )
+        # category param overrides profile target_role for this request
+        effective_category = category if category is not None else (
+            (profile_row["target_role"] or "") if profile_row else ""
+        )
         user_skill_names = {s["name"].lower() for s in user_skills}
+
+        # Available categories across all selected companies
+        if company_ids:
+            placeholders = ",".join("?" * len(company_ids))
+            cat_rows = conn.execute(
+                f"SELECT DISTINCT job_category FROM jobs "
+                f"WHERE company_id IN ({placeholders}) AND job_category IS NOT NULL AND job_category != '' "
+                f"ORDER BY job_category",
+                company_ids,
+            ).fetchall()
+            available_categories = [r["job_category"] for r in cat_rows]
+        else:
+            available_categories = []
 
         companies_data = []
         all_skill_sets: dict[str, set[int]] = {}  # skill → set of company_ids that need it
@@ -154,9 +173,16 @@ def compare(ids: str = ""):
             if not row:
                 continue
 
-            jobs = conn.execute(
-                "SELECT id FROM jobs WHERE company_id = ?", (cid,)
-            ).fetchall()
+            if effective_category:
+                jobs = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ? AND job_category = ?",
+                    (cid, effective_category),
+                ).fetchall()
+            else:
+                jobs = conn.execute(
+                    "SELECT id FROM jobs WHERE company_id = ?", (cid,)
+                ).fetchall()
+
             skill_counts: dict[str, int] = {}
             for job in jobs:
                 for s in conn.execute(
@@ -177,9 +203,7 @@ def compare(ids: str = ""):
                     per_job.append(sl)
 
             fit = calculate_company_fit(user_skills, per_job)
-            open_roles = conn.execute(
-                "SELECT COUNT(*) as c FROM jobs WHERE company_id = ?", (cid,)
-            ).fetchone()["c"]
+            open_roles = len(jobs)
 
             fit_color = "#15604a" if fit >= 70 else "#b9791f" if fit >= 45 else "#b1493a"
             companies_data.append(
@@ -224,9 +248,11 @@ def compare(ids: str = ""):
             if len(s) == n_selected and skill.lower() not in user_skill_names
         ]
         if universal_gaps:
+            focus_suffix = f" in {effective_category}" if effective_category else ""
             verdict = (
                 f"{universal_gaps[0]} is needed across all {n_selected} selected "
-                f"{'company' if n_selected == 1 else 'companies'} — highest-priority gap to close."
+                f"{'company' if n_selected == 1 else 'companies'}{focus_suffix} "
+                f"— highest-priority gap to close."
             )
         elif companies_data:
             best = max(companies_data, key=lambda c: c["fit"])
@@ -234,7 +260,13 @@ def compare(ids: str = ""):
         else:
             verdict = "Select companies to compare."
 
-        return {"companies": companies_data, "rows": rows, "verdict": verdict}
+        return {
+            "companies": companies_data,
+            "rows": rows,
+            "verdict": verdict,
+            "available_categories": available_categories,
+            "active_category": effective_category,
+        }
 
 
 # ── GET /api/learn ────────────────────────────────────────────────────────────

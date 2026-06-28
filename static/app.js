@@ -9,6 +9,7 @@ const S = {
   stats: { total_jobs: 0, new_jobs: 0, avg_fit: 0, companies_tracked: 0 },
   profile: { name: '', role: '', target_role: '', skills: [], skill_count: 0, initials: '' },
   compareIds: new Set(),
+  compareCategory: null,  // active department filter on Compare page (null = profile target_role)
   addPhase: 'input',   // 'input' | 'scanning' | 'review'
   addInput: '',
   addResult: null,     // company detail after sync
@@ -554,8 +555,14 @@ async function renderCompare() {
     return;
   }
 
+  // Default category to profile career focus when not explicitly overridden
+  if (S.compareCategory === null && S.profile.target_role) {
+    S.compareCategory = S.profile.target_role;
+  }
+
   setSyncLabel('LOADING…');
-  const data = await api('GET', `/compare?ids=${ids}`);
+  const catParam = S.compareCategory ? `&category=${encodeURIComponent(S.compareCategory)}` : '';
+  const data = await api('GET', `/compare?ids=${ids}${catParam}`);
   setSyncLabel('READY');
 
   const cols = data.companies.length;
@@ -613,9 +620,30 @@ async function renderCompare() {
     </div>`;
   }).join('');
 
+  const availCats = data.available_categories || [];
+  const activeCat = data.active_category || null;
+  const catChipsHtml = availCats.map(cat => {
+    const active = activeCat === cat;
+    return `<div onclick="setCompareCategory('${esc(cat)}')" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:${active ? '600' : '500'};background:${active ? '#15604a' : '#fff'};color:${active ? '#fff' : '#55504a'};border:1px solid ${active ? '#15604a' : '#e7e3da'};white-space:nowrap;transition:all .15s;">${esc(cat)}</div>`;
+  }).join('');
+
+  const catFilterBar = availCats.length ? `
+    <div style="margin-bottom:18px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;color:#9a9488;margin-bottom:8px;">FILTER BY DEPARTMENT</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center;">
+        <div onclick="setCompareCategory(null)" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:${!activeCat ? '600' : '500'};background:${!activeCat ? '#1b1a17' : '#fff'};color:${!activeCat ? '#fff' : '#55504a'};border:1px solid ${!activeCat ? '#1b1a17' : '#e7e3da'};white-space:nowrap;transition:all .15s;">All</div>
+        ${catChipsHtml}
+      </div>
+    </div>` : '';
+
+  const focusLabel = activeCat
+    ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#15604a;background:#e7f0ea;border:1px solid #cfe2d6;border-radius:10px;padding:2px 9px;margin-left:8px;">${esc(activeCat)}</span>`
+    : '';
+
   setHTML('screen', `<div class="anim-in" style="padding:26px 28px 60px;">
-    <div style="font-size:12.5px;color:#7a756a;margin-bottom:13px;">Select companies to compare. Skills are sorted by how many companies need them — most universal first.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;">${chipsHtml}</div>
+    <div style="font-size:12.5px;color:#7a756a;margin-bottom:13px;">Select companies to compare. Skills sorted by how many companies need them.${focusLabel}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;">${chipsHtml}</div>
+    ${catFilterBar}
 
     <div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:14px;margin-bottom:22px;">${fitCards}</div>
 
@@ -645,6 +673,11 @@ async function renderCompare() {
 function toggleCompare(id) {
   if (S.compareIds.has(id)) { S.compareIds.delete(id); }
   else { S.compareIds.add(id); }
+  renderCompare();
+}
+
+function setCompareCategory(cat) {
+  S.compareCategory = cat;
   renderCompare();
 }
 
