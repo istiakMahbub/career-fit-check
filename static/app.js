@@ -707,7 +707,7 @@ async function renderLearn() {
           <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;color:${r.tag_color};background:${r.tag_bg};border-radius:5px;padding:2px 7px;">${esc(r.tag)}</span>
           ${!r.in_profile
             ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#b1493a;background:#f5e5e1;border:1px solid #e8c5bf;border-radius:5px;padding:2px 7px;">NOT IN PROFILE</span>`
-            : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#9a7c33;background:#f7edda;border:1px solid #ecddc0;border-radius:5px;padding:2px 7px;">+${r.gap_pts} PTS NEEDED</span>`}
+            : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#15604a;background:#e7f0ea;border:1px solid #cfe2d6;border-radius:5px;padding:2px 7px;">✓ IN PROFILE</span>`}
         </div>
         ${r.jobs_requiring && r.jobs_requiring.length ? `
         <div style="background:#e7f0ea;border:1px solid #cfe2d6;border-radius:9px;padding:9px 12px;margin-bottom:10px;">
@@ -719,16 +719,12 @@ async function renderLearn() {
           ${esc(r.tip)}
         </div>` : ''}
       </div>
-      <div style="width:180px;flex:none;">
-        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;margin-bottom:6px;">
-          <span>NOW ${r.level}</span>
-          <span style="color:#15604a;">TARGET ${r.target}</span>
-        </div>
-        <div style="position:relative;height:8px;background:#f0ece3;border-radius:6px;overflow:visible;">
-          <div style="height:100%;border-radius:6px;background:#b9791f;width:${r.level_w}%;"></div>
-          <div style="position:absolute;top:-2px;width:2px;height:12px;background:#15604a;border-radius:2px;left:${r.target_w}%;"></div>
-        </div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7a756a;margin-top:8px;text-align:right;">est. <span style="color:#15604a;font-weight:600;">+${r.gain}% avg fit</span></div>
+      <div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:10px;padding-top:2px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#15604a;background:#e7f0ea;border:1px solid #cfe2d6;border-radius:8px;padding:4px 10px;">+${r.gain}% avg fit</div>
+        ${!r.in_profile
+          ? `<button onclick="addSkillFromLearn('${esc(r.skill)}', this)" style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;background:#15604a;color:#fff;border:1px solid #1a7a5e;border-radius:8px;padding:6px 13px;cursor:pointer;white-space:nowrap;transition:all .2s;">+ Add to profile</button>`
+          : `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9488;">already tracking</span>`
+        }
       </div>
     </div>`).join('');
 
@@ -968,9 +964,19 @@ async function addSkillFromRec(name, btn) {
   btn.style.color = '#15604a';
   btn.style.borderColor = '#cfe2d6';
   await api('POST', '/profile/skill', { name, level: 50 });
-  // Refresh profile state silently, then re-render deep dive so fit updates
   S.profile = await api('GET', '/profile');
   await renderDeepDive();
+}
+
+async function addSkillFromLearn(name, btn) {
+  btn.disabled = true;
+  btn.textContent = '✓ Added';
+  btn.style.background = '#e7f0ea';
+  btn.style.color = '#15604a';
+  btn.style.borderColor = '#cfe2d6';
+  await api('POST', '/profile/skill', { name, level: 50 });
+  S.profile = await api('GET', '/profile');
+  await renderLearn();
 }
 
 async function adjustSkill(name, delta) {
