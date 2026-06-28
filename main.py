@@ -535,20 +535,34 @@ def ats_score(payload: ATSScoreRequest):
     required_skills = [r["skill"] for r in skill_rows if r["required"] == 1]
     preferred_skills = [r["skill"] for r in skill_rows if r["required"] == 0]
 
-    # Extract keywords present in the resume text
-    from ai.skill_extractor import extract_skills
-    resume_kw_list = extract_skills(payload.resume_text[:8000])
-    resume_kw = {k.lower() for k in resume_kw_list}
+    # Literal keyword search — exactly how real ATS works.
+    # No AI needed on the resume side: check if each job keyword appears
+    # as a word/phrase in the resume text (case-insensitive).
+    resume_lower = payload.resume_text.lower()
 
-    req_matched = [s for s in required_skills if s.lower() in resume_kw]
-    req_missing = [s for s in required_skills if s.lower() not in resume_kw]
-    pref_matched = [s for s in preferred_skills if s.lower() in resume_kw]
-    pref_missing = [s for s in preferred_skills if s.lower() not in resume_kw]
+    def _keyword_in_resume(kw: str) -> bool:
+        kw_l = kw.lower()
+        idx = resume_lower.find(kw_l)
+        if idx == -1:
+            return False
+        # Word-boundary guard: char before and after must not be alphanumeric
+        before_ok = idx == 0 or not resume_lower[idx - 1].isalnum()
+        after_idx = idx + len(kw_l)
+        after_ok = after_idx >= len(resume_lower) or not resume_lower[after_idx].isalnum()
+        return before_ok and after_ok
+
+    req_matched = [s for s in required_skills if _keyword_in_resume(s)]
+    req_missing = [s for s in required_skills if not _keyword_in_resume(s)]
+    pref_matched = [s for s in preferred_skills if _keyword_in_resume(s)]
+    pref_missing = [s for s in preferred_skills if not _keyword_in_resume(s)]
 
     # ATS score: required 2×, preferred 1×
     total_weight = len(required_skills) * 2 + len(preferred_skills)
     matched_weight = len(req_matched) * 2 + len(pref_matched)
     score = round((matched_weight / total_weight) * 100) if total_weight > 0 else 0
+
+    all_job_skills = required_skills + preferred_skills
+    resume_keywords_detected = sum(1 for s in all_job_skills if _keyword_in_resume(s))
 
     return {
         "score": score,
@@ -558,7 +572,7 @@ def ats_score(payload: ATSScoreRequest):
         "preferred_missing": sorted(pref_missing),
         "total_required": len(required_skills),
         "total_preferred": len(preferred_skills),
-        "resume_keywords_detected": len(resume_kw),
+        "resume_keywords_detected": resume_keywords_detected,
     }
 
 
