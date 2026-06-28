@@ -243,12 +243,12 @@ The current GitHub integration is functional but surface-level. Next: a more mea
 
 ---
 
-## Project Framing
+## About This Project
 
-> **Career Fit Check** — An OSINT-inspired job market intelligence dashboard that aggregates publicly available job postings from target companies, uses AI to extract required skills and hiring trends, scores your resume against real ATS keyword logic, and surfaces prioritised learning recommendations. Built with FastAPI, SQLite, and Google Gemini API.
+This is a personal project — built entirely with the help of AI, exploring what's possible when you hand the full journey (concept, design, architecture, implementation) to [Claude](https://claude.ai/code). Every screen, every endpoint, every design decision in this repo came out of that collaboration.
 
-This project directly demonstrates OSINT thesis work: open-source data collection → aggregation → AI analysis → decision support.
+The goal was to build something genuinely useful for a real job search, not just a demo. If you're job hunting in tech, feel free to clone it and point it at the companies you care about.
 
 ---
 
-*v0.1.0-beta — built with [Claude Code](https://claude.ai/code)*
+*v0.1.0-beta*
